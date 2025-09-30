@@ -11,18 +11,30 @@ const { spawn } = require('child_process');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
-let runSeleniumCore;
-try {
-  // Prefer local bundled selenium core
-  runSeleniumCore = require('./runner-core-selenium').runSelenium;
-} catch (e) {
-  try {
-    // Try resolving relative to this file when packaged
-    runSeleniumCore = require(path.join(__dirname, 'runner-core-selenium')).runSelenium;
-  } catch (e2) {
-    runSeleniumCore = null;
-  }
+
+// --- Use original Selenium core runner ---
+const { runSelenium } = require('./runner-core-selenium');
+
+// Live logs buffer for current run
+let currentRun = null; // { id: string, lines: string[], done: boolean }
+function startLogBuffer() {
+  currentRun = { id: String(Date.now()), lines: [], done: false };
 }
+function pushLogLine(line) {
+  if (currentRun) currentRun.lines.push(line);
+}
+function finishLogBuffer() {
+  if (currentRun) currentRun.done = true;
+}
+
+function createLogger() {
+  const lines = [];
+  return {
+    log: (...args) => { const s = args.map(a => String(a)).join(' '); lines.push(s); try { pushLogLine(s); } catch {} },
+    output: () => lines.join('\n')
+  };
+}
+// No puppeteer helpers; rely on Selenium core implementation
 
 const PORT = process.env.IDT_AGENT_PORT ? Number(process.env.IDT_AGENT_PORT) : 4599;
 // Load optional sidecar config (next to binary in packaged mode, or cwd in dev)
@@ -48,16 +60,15 @@ function send(res, status, body) {
 }
 
 async function runCsv(csv) {
-  // Always prefer in-process core; do not fallback to legacy runner path
-  if (runSeleniumCore) {
-    try {
-      const res = await runSeleniumCore({ csv, test: false });
-      return { code: res.ok ? 0 : 1, out: res.output || '' };
-    } catch (e) {
-      return { code: 1, out: String(e && e.message || e) };
-    }
+  try {
+    startLogBuffer();
+    const res = await runSelenium({ csv, test: false }, createLogger());
+    finishLogBuffer();
+    return { code: res.ok ? 0 : 1, out: res.output || '' };
+  } catch (e) {
+    finishLogBuffer();
+    return { code: 1, out: String(e && e.message || e) };
   }
-  return { code: 1, out: '[agent] Core runner missing. Please update the agent to a version that bundles runner-core-selenium.' };
 }
 
 function openUrl(url) {
@@ -122,14 +133,20 @@ const server = http.createServer(async (req, res) => {
     return send(res, 200, { ok: true, version: AGENT_VERSION, platform: process.platform });
   }
 
+  if (req.method === 'GET' && req.url === '/logs') {
+    const payload = currentRun ? { ok: true, id: currentRun.id, lines: currentRun.lines, done: currentRun.done } : { ok: true, id: null, lines: [], done: true };
+    return send(res, 200, payload);
+  }
+
   if (req.method === 'POST' && req.url === '/test') {
     let body = '';
     req.on('data', (chunk) => (body += chunk));
     req.on('end', async () => {
       try {
         const csv = 'NAME,SEQUENCE,SCALE,PURIFICATION';
-        if (!runSeleniumCore) return send(res, 500, { ok: false, error: 'Core runner missing. Update agent.' });
-        const result = await runSeleniumCore({ csv, test: true });
+        startLogBuffer();
+        const result = await runSelenium({ csv, test: true }, createLogger());
+        finishLogBuffer();
         return send(res, 200, { ok: !!result.ok, code: result.ok ? 0 : 1, output: result.output || '' });
       } catch (e) {
         return send(res, 500, { ok: false, error: String(e && e.message || e) });
@@ -141,8 +158,9 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'GET' && req.url === '/test') {
     try {
       const csv = 'NAME,SEQUENCE,SCALE,PURIFICATION';
-      if (!runSeleniumCore) return send(res, 500, { ok: false, error: 'Core runner missing. Update agent.' });
-      const result = await runSeleniumCore({ csv, test: true });
+      startLogBuffer();
+      const result = await runSelenium({ csv, test: true }, createLogger());
+      finishLogBuffer();
       return send(res, 200, { ok: !!result.ok, code: result.ok ? 0 : 1, output: result.output || '' });
     } catch (e) {
       return send(res, 500, { ok: false, error: String(e && e.message || e) });
