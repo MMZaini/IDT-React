@@ -42,16 +42,18 @@ function getCsvFromArg() {
   }
 }
 
+function getModeFromArg() {
+  const mode = (process.argv[3] || '').toLowerCase();
+  return mode === 'test' ? 'test' : 'run';
+}
+
 function fileExists(p) {
   try { return fs.existsSync(p); } catch { return false; }
 }
 
-function findWindowsBrowser() {
+function findWindowsChrome() {
   // Prefer Edge (present on all supported Windows versions), fallback to Chrome
   const guesses = [
-    process.env['ProgramFiles'] && path.join(process.env['ProgramFiles'], 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
-    process.env['ProgramFiles(x86)'] && path.join(process.env['ProgramFiles(x86)'], 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
-    process.env['LOCALAPPDATA'] && path.join(process.env['LOCALAPPDATA'], 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
     process.env['ProgramFiles'] && path.join(process.env['ProgramFiles'], 'Google', 'Chrome', 'Application', 'chrome.exe'),
     process.env['ProgramFiles(x86)'] && path.join(process.env['ProgramFiles(x86)'], 'Google', 'Chrome', 'Application', 'chrome.exe'),
     process.env['LOCALAPPDATA'] && path.join(process.env['LOCALAPPDATA'], 'Google', 'Chrome', 'Application', 'chrome.exe'),
@@ -62,12 +64,10 @@ function findWindowsBrowser() {
   return null;
 }
 
-function findMacBrowser() {
+function findMacChrome() {
   const guesses = [
     '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-    '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
     path.join(os.homedir(), 'Applications', 'Google Chrome.app', 'Contents', 'MacOS', 'Google Chrome'),
-    path.join(os.homedir(), 'Applications', 'Microsoft Edge.app', 'Contents', 'MacOS', 'Microsoft Edge'),
   ];
   for (const g of guesses) {
     if (fileExists(g)) return g;
@@ -75,14 +75,12 @@ function findMacBrowser() {
   return null;
 }
 
-function findLinuxBrowser() {
+function findLinuxChrome() {
   const guesses = [
     '/usr/bin/google-chrome',
     '/usr/bin/google-chrome-stable',
-    '/snap/bin/chromium',
     '/usr/bin/chromium-browser',
     '/usr/bin/chromium',
-    '/usr/bin/microsoft-edge',
   ];
   for (const g of guesses) {
     if (fileExists(g)) return g;
@@ -92,9 +90,11 @@ function findLinuxBrowser() {
 
 function findBrowserExecutable() {
   const plat = process.platform;
-  if (plat === 'win32') return findWindowsBrowser();
-  if (plat === 'darwin') return findMacBrowser();
-  return findLinuxBrowser();
+  const override = process.env.IDT_CHROME_PATH;
+  if (override && fileExists(override)) return override;
+  if (plat === 'win32') return findWindowsChrome();
+  if (plat === 'darwin') return findMacChrome();
+  return findLinuxChrome();
 }
 
 async function robustClick(page, handle) {
@@ -120,11 +120,12 @@ async function tryClickXPath(page, xpaths) {
 
 async function main() {
   const csv = getCsvFromArg();
+  const mode = getModeFromArg();
   console.log('CSV length', csv.length);
 
   const exe = findBrowserExecutable();
   if (!exe) {
-    console.error('Could not find Chrome or Edge on this system. Please install Google Chrome (preferred) or Microsoft Edge.');
+    console.error('Could not find Google Chrome on this system. Please install Google Chrome or set IDT_CHROME_PATH to the Chrome executable.');
     process.exit(3);
   }
 
@@ -145,6 +146,14 @@ async function main() {
 
     await p.goto('https://eu.idtdna.com/site/order/oligoentry', { waitUntil: 'domcontentloaded' });
 
+    if (mode === 'test') {
+      const keepOpenMs = Number(process.env.IDT_KEEP_OPEN_MS || '4000');
+      await p.waitForTimeout(Math.max(0, keepOpenMs));
+      try { await browser.disconnect(); } catch {}
+      process.exit(0);
+      return;
+    }
+
     // Try to accept cookies if present
     try {
       const cookieXPaths = [
@@ -164,7 +173,7 @@ async function main() {
     await p.waitForTimeout(600);
 
     // Select comma delimiter
-    await p.waitForXPath('/html/body/div[3]/div[3]/div[3]/div/div[7]/div/div/div[2]/div[3]/div[1]/select', { timeout: 5000 });
+  await p.waitForXPath('/html/body/div[3]/div[3]/div[3]/div/div[7]/div/div/div[2]/div[3]/div[1]/select', { timeout: 10000 });
     const [delim] = await p.$x('/html/body/div[3]/div[3]/div[3]/div/div[7]/div/div/div[2]/div[3]/div[1]/select');
     if (delim) {
       await delim.select(',').catch(async () => {
@@ -176,7 +185,7 @@ async function main() {
     await p.waitForTimeout(300);
 
     // Enter CSV in textarea
-    await p.waitForXPath('/html/body/div[3]/div[3]/div[3]/div/div[7]/div/div/div[2]/div[4]/div[1]/div[1]/textarea', { timeout: 5000 });
+  await p.waitForXPath('/html/body/div[3]/div[3]/div[3]/div/div[7]/div/div/div[2]/div[4]/div[1]/div[1]/textarea', { timeout: 10000 });
     const [ta] = await p.$x('/html/body/div[3]/div[3]/div[3]/div/div[7]/div/div/div[2]/div[4]/div[1]/div[1]/textarea');
     await ta.click({ clickCount: 3 }).catch(() => {});
     await p.keyboard.press('Backspace').catch(() => {});
@@ -188,15 +197,20 @@ async function main() {
     const [updateBtn] = await p.$x('/html/body/div[3]/div[3]/div[3]/div/div[7]/div/div/div[3]/div/div[1]/button');
     await robustClick(p, updateBtn);
     console.log('Clicked update');
-    await p.waitForTimeout(800);
+  await p.waitForTimeout(1500);
 
     // Click add to cart
     const [addBtn] = await p.$x('/html/body/div[3]/div[3]/div[3]/div/div[5]/div/div[2]/div[1]/div[2]/div[3]/div/button[1]');
     await robustClick(p, addBtn);
     console.log('Clicked add to cart');
 
+    // Wait for a few seconds to allow action to complete/visual confirmation
+    const keepOpenMs = Number(process.env.IDT_KEEP_OPEN_MS || '6000');
+    await p.waitForTimeout(Math.max(0, keepOpenMs));
+
     console.log('Done');
-    // Intentionally keep browser open so user can see result
+    // Disconnect so browser can remain open; then exit
+    try { await browser.disconnect(); } catch {}
     process.exit(0);
   } catch (err) {
     console.error('Runner error:', err && err.message);

@@ -3,7 +3,7 @@
   Local agent HTTP bridge for the website (e.g., hosted on Vercel):
   - Listens on http://127.0.0.1:4599
   - POST /run { csv: string }
-  - Launches puppeteer-core (via cli-runner logic) with the CSV
+  - Uses in-process Selenium (chromedriver) to launch Chrome and run the automation
 */
 const http = require('http');
 const https = require('https');
@@ -11,6 +11,13 @@ const { spawn } = require('child_process');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
+let runSeleniumCore;
+try {
+  // Prefer local bundled selenium core
+  runSeleniumCore = require('./runner-core-selenium').runSelenium;
+} catch (e) {
+  runSeleniumCore = null;
+}
 
 const PORT = process.env.IDT_AGENT_PORT ? Number(process.env.IDT_AGENT_PORT) : 4599;
 // Load optional sidecar config (next to binary in packaged mode, or cwd in dev)
@@ -35,11 +42,24 @@ function send(res, status, body) {
   res.end(data);
 }
 
-function runCsv(csv) {
+async function runCsv(csv) {
+  // If selenium core is available, run in-process for reliability (no missing path issues)
+  if (runSeleniumCore) {
+    try {
+      const res = await runSeleniumCore({ csv, test: false });
+      return { code: res.ok ? 0 : 1, out: res.output || '' };
+    } catch (e) {
+      return { code: 1, out: String(e && e.message || e) };
+    }
+  }
+  // Fallback: try legacy selenium runner script if present
   return new Promise((resolve) => {
     const b64 = Buffer.from(csv, 'utf8').toString('base64');
-    const runner = path.join(process.cwd(), 'scripts', 'cli-runner.js');
-    const child = spawn(process.execPath, [runner, b64], { stdio: ['ignore', 'pipe', 'pipe'] });
+    const runner = path.join(process.cwd(), 'scripts', 'selenium-runner.js');
+    const env = Object.assign({}, process.env, {
+      IDT_KEEP_OPEN_MS: process.env.IDT_KEEP_OPEN_MS || '6000',
+    });
+    const child = spawn(process.execPath, [runner, b64], { stdio: ['ignore', 'pipe', 'pipe'], env });
     let out = '';
     child.stdout.on('data', (d) => (out += d.toString()));
     child.stderr.on('data', (d) => (out += d.toString()));
@@ -106,7 +126,54 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (req.method === 'GET' && req.url === '/health') {
-    return send(res, 200, { ok: true, version: AGENT_VERSION });
+    return send(res, 200, { ok: true, version: AGENT_VERSION, platform: process.platform });
+  }
+
+  if (req.method === 'POST' && req.url === '/test') {
+    let body = '';
+    req.on('data', (chunk) => (body += chunk));
+    req.on('end', async () => {
+      try {
+        const csv = 'NAME,SEQUENCE,SCALE,PURIFICATION';
+        if (runSeleniumCore) {
+          const result = await runSeleniumCore({ csv, test: true });
+          return send(res, 200, { ok: !!result.ok, code: result.ok ? 0 : 1, output: result.output || '' });
+        } else {
+          // Fallback to legacy selenium-runner in test mode (will just open page and sleep)
+          const runner = path.join(process.cwd(), 'scripts', 'selenium-runner.js');
+          const env = Object.assign({}, process.env, { IDT_KEEP_OPEN_MS: process.env.IDT_KEEP_OPEN_MS || '3000' });
+          const child = spawn(process.execPath, [runner, Buffer.from(csv, 'utf8').toString('base64')], { stdio: ['ignore', 'pipe', 'pipe'], env });
+          let out = '';
+          child.stdout.on('data', (d) => (out += d.toString()));
+          child.stderr.on('data', (d) => (out += d.toString()));
+          child.on('close', (code) => send(res, 200, { ok: code === 0, code, output: out }));
+        }
+      } catch (e) {
+        return send(res, 500, { ok: false, error: String(e && e.message || e) });
+      }
+    });
+    return;
+  }
+
+  if (req.method === 'GET' && req.url === '/test') {
+    try {
+      const csv = 'NAME,SEQUENCE,SCALE,PURIFICATION';
+      if (runSeleniumCore) {
+        const result = await runSeleniumCore({ csv, test: true });
+        return send(res, 200, { ok: !!result.ok, code: result.ok ? 0 : 1, output: result.output || '' });
+      } else {
+        const runner = path.join(process.cwd(), 'scripts', 'selenium-runner.js');
+        const env = Object.assign({}, process.env, { IDT_KEEP_OPEN_MS: process.env.IDT_KEEP_OPEN_MS || '3000' });
+        const child = spawn(process.execPath, [runner, Buffer.from(csv, 'utf8').toString('base64')], { stdio: ['ignore', 'pipe', 'pipe'], env });
+        let out = '';
+        child.stdout.on('data', (d) => (out += d.toString()));
+        child.stderr.on('data', (d) => (out += d.toString()));
+        child.on('close', (code) => send(res, 200, { ok: code === 0, code, output: out }));
+      }
+    } catch (e) {
+      return send(res, 500, { ok: false, error: String(e && e.message || e) });
+    }
+    return;
   }
 
   if (req.method === 'POST' && req.url === '/run') {
@@ -120,7 +187,7 @@ const server = http.createServer(async (req, res) => {
         const { code, out } = await runCsv(csv);
         return send(res, 200, { ok: code === 0, code, output: out });
       } catch (e) {
-        return send(res, 500, { ok: false, error: String(e) });
+        return send(res, 500, { ok: false, error: String(e && e.message || e) });
       }
     });
     return;

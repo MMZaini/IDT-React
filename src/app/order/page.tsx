@@ -59,24 +59,54 @@ export default function OrderPage() {
   const [openClear, setOpenClear] = React.useState(false);
   const [openAgentHelp, setOpenAgentHelp] = React.useState(false);
   const [agentOnline, setAgentOnline] = React.useState<null | boolean>(null);
+  const [agentVersion, setAgentVersion] = React.useState<string>('');
+  const [agentPlatform, setAgentPlatform] = React.useState<string>('');
   const downloadWin = process.env.NEXT_PUBLIC_AGENT_WIN_URL || '';
   const downloadMac = process.env.NEXT_PUBLIC_AGENT_MAC_URL || '';
+  const [consoleLines, setConsoleLines] = React.useState<string[]>([]);
+  const consoleRef = React.useRef<HTMLDivElement | null>(null);
+
+  function appendLog(...lines: string[]) {
+    setConsoleLines((prev) => [...prev, ...lines.map(l => `${new Date().toLocaleTimeString()}  ${l}`)]);
+  }
+
+  function appendOutput(prefix: string, out?: string) {
+    if (!out) return;
+    const parts = out.split(/\r?\n/).filter(Boolean);
+    if (parts.length === 0) return;
+    appendLog(`${prefix}:`, ...parts.map(l => `  ${l}`));
+  }
+
+  function clearConsole() {
+    setConsoleLines([]);
+  }
+
+  React.useEffect(() => {
+    if (!consoleRef.current) return;
+    consoleRef.current.scrollTop = consoleRef.current.scrollHeight;
+  }, [consoleLines]);
 
   React.useEffect(() => {
     let cancelled = false;
     async function ping() {
       try {
         const controller = new AbortController();
-        const to = setTimeout(() => controller.abort(), 1500);
+        const to = setTimeout(() => controller.abort(), 1000);
         const res = await fetch('http://127.0.0.1:4599/health', { signal: controller.signal });
         clearTimeout(to);
-        if (!cancelled) setAgentOnline(res.ok);
+        if (cancelled) return;
+        setAgentOnline(res.ok);
+        try {
+          const data = await res.json();
+          setAgentVersion(data?.version || '');
+          setAgentPlatform(data?.platform || '');
+        } catch {}
       } catch {
         if (!cancelled) setAgentOnline(false);
       }
     }
     ping();
-    const id = setInterval(ping, 8000);
+    const id = setInterval(ping, 2000);
     return () => { cancelled = true; clearInterval(id); };
   }, []);
 
@@ -171,27 +201,7 @@ export default function OrderPage() {
     return lines.join('\n');
   }
 
-  function handleExportCsv() {
-    try {
-      const csv = buildCsv(items || []);
-      if (!csv) {
-        toast.error('No valid lines to export');
-        return;
-      }
-      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'idt-bulk.csv';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      toast.success('Exported CSV');
-    } catch (e) {
-      toast.error('CSV export failed');
-    }
-  }
+  // CSV export removed per request
 
   // Trigger hidden file input
   function handleImportClick() {
@@ -282,13 +292,13 @@ export default function OrderPage() {
         mode: 'cors',
       });
       clearTimeout(to);
-      if (!res.ok) throw new Error('Agent returned error');
-      const data = await res.json();
-      if (!data?.ok) throw new Error('Agent run failed');
-      return true;
+      let data: any = null;
+      try { data = await res.json(); } catch {}
+      appendOutput('Agent output', data && data.output);
+      return { ok: !!(res.ok && data && data.ok), status: res.status, output: data && (data.output || data.error) };
     } catch (e) {
       clearTimeout(to);
-      return false;
+      return { ok: false, status: 0, output: undefined };
     }
   }
 
@@ -328,23 +338,13 @@ export default function OrderPage() {
 
     setSubmitting(true);
     try {
-      // Try local agent first for Vercel-hosted site compatibility
-      const okLocal = await submitViaLocalAgent(text, lines.length);
-      if (okLocal) {
-        toast.success('Agent started automation');
+      // Use only local agent path
+      const local = await submitViaLocalAgent(text, lines.length);
+      if (local.ok) {
+        toast.success('Automation started via local agent');
+        appendLog('Local agent accepted job.');
       } else {
-        // Fallback to server API (may not work on Vercel serverless)
-        try {
-          await fetch('/api/run-selenium', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ csv: text, count: lines.length }),
-          });
-          toast.success('Server started automation');
-        } catch (e) {
-          setOpenAgentHelp(true);
-          toast.error('Agent not found. See help.');
-        }
+        // Suppress failure UI per request; do not log to console
       }
     } finally {
       // small delay to give user feedback and prevent immediate re-click
@@ -356,6 +356,22 @@ export default function OrderPage() {
 
   return (
     <div className="mx-auto max-w-6xl p-6 space-y-6">
+      {/* Debug Console */}
+      <div className="rounded-lg border bg-muted/40">
+        <div className="flex items-center justify-between px-3 py-2">
+          <div className="text-xs font-medium">Debug console</div>
+          <div className="flex items-center gap-2">
+            <Button type="button" variant="outline" size="sm" className="h-7 px-2" onClick={() => clearConsole()}>Clear</Button>
+          </div>
+        </div>
+        <div ref={consoleRef} className="px-3 pb-3 h-44 overflow-y-auto font-mono text-xs whitespace-pre-wrap leading-relaxed">
+          {consoleLines.length === 0 ? (
+            <div className="text-muted-foreground">No logs yet. Actions and agent output will appear here.</div>
+          ) : (
+            consoleLines.map((l, i) => <div key={i}>{l}</div>)
+          )}
+        </div>
+      </div>
       <header className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">IDT Bulk Ordering</h1>
@@ -366,10 +382,8 @@ export default function OrderPage() {
         <div className="flex items-start gap-4">
           <div className="flex items-center gap-2 text-xs border rounded-md px-3 py-2 bg-muted/40">
             <div className={`w-2.5 h-2.5 rounded-full ${agentOnline ? 'bg-green-500' : agentOnline === false ? 'bg-red-500' : 'bg-gray-400'}`} />
-            <span className="select-none">Agent: {agentOnline ? 'Online' : agentOnline === false ? 'Offline' : 'Checking…'}</span>
-            {!agentOnline && (
-              <button type="button" className="underline text-blue-600" onClick={() => setOpenAgentHelp(true)}>Help</button>
-            )}
+            <span className="select-none">Agent: {agentOnline ? 'Online' : agentOnline === false ? 'Offline' : 'Checking…'}{agentOnline && agentVersion ? ` v${agentVersion}` : ''}</span>
+            <Button type="button" variant="outline" size="sm" className="h-7 px-2" onClick={() => setOpenAgentHelp(true)}>Help</Button>
           </div>
           {/* Import / Export / Clear Controls (styled to align with other tool groups) */}
           <div className="flex items-center gap-2 text-xs border rounded-md px-3 py-2 bg-muted/40">
@@ -389,14 +403,7 @@ export default function OrderPage() {
             >
               Export
             </Button>
-            <Button
-              type="button"
-              size="sm"
-              onClick={handleExportCsv}
-              className="h-7 px-3 bg-blue-600 hover:bg-blue-500 text-white"
-            >
-              Export CSV
-            </Button>
+            {/* Export CSV removed per request */}
             <Dialog open={openClear} onOpenChange={setOpenClear}>
               <DialogTrigger asChild>
                 <Button
@@ -512,21 +519,32 @@ export default function OrderPage() {
               To run automation when hosted on Vercel, please start the local agent. It listens on 127.0.0.1:4599 and launches Chrome to place your order.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-2 text-sm">
+          <div className="space-y-3 text-sm">
             <p>
               1) Download and run the agent binary (Windows/mac). Or run it from source via <code>npm run agent</code>.
             </p>
-            <div className="flex gap-3 text-xs">
-              {downloadWin ? <a className="underline text-blue-600" href={downloadWin} target="_blank">Download for Windows</a> : null}
-              {downloadMac ? <a className="underline text-blue-600" href={downloadMac} target="_blank">Download for macOS</a> : null}
+            <div className="flex flex-wrap gap-2">
+              {downloadWin ? <Button asChild size="sm" className="h-8"><a href={downloadWin} target="_blank">Download for Windows</a></Button> : null}
+              {downloadMac ? <Button asChild size="sm" variant="outline" className="h-8"><a href={downloadMac} target="_blank">Download for macOS</a></Button> : null}
             </div>
+            {agentPlatform ? <p className="text-xs text-muted-foreground">Detected platform: {agentPlatform}</p> : null}
             <p>
               2) Keep this page open and click Submit again.
             </p>
             <p className="text-muted-foreground">Agent URL: http://127.0.0.1:4599/run</p>
+            <div className="rounded-md border p-3 bg-muted/30">
+              <div className="text-xs font-medium mb-1">Advanced</div>
+              <div className="text-xs text-muted-foreground">Run from source (requires Node):</div>
+              <pre className="text-xs mt-1">npm run agent</pre>
+              <div className="text-xs text-muted-foreground mt-2">Troubleshooting:</div>
+              <ul className="list-disc ml-5 text-xs text-muted-foreground">
+                <li>Ensure Google Chrome is installed (the agent uses Chrome only).</li>
+                <li>If Chrome is in a custom path, set IDT_CHROME_PATH before running the agent.</li>
+                <li>Increase IDT_KEEP_OPEN_MS (e.g., 10000) to keep the window open longer.</li>
+              </ul>
+            </div>
           </div>
           <DialogFooter>
-            <a className="underline text-blue-600" href="/agent" onClick={() => setOpenAgentHelp(false)}>Open agent instructions</a>
             <DialogClose asChild>
               <Button type="button" variant="secondary">Close</Button>
             </DialogClose>
@@ -784,16 +802,16 @@ export default function OrderPage() {
             )}
             <Button
               type="submit"
-              disabled={invalidLines.length > 0 || submitting}
+              disabled={invalidLines.length > 0 || submitting || agentOnline !== true}
               className={
-                invalidLines.length > 0
+                invalidLines.length > 0 || agentOnline !== true
                   ? 'bg-gray-300 text-gray-600 cursor-not-allowed hover:bg-gray-300'
                   : submitting
                     ? 'relative bg-primary text-primary-foreground opacity-70'
                     : 'bg-primary text-primary-foreground hover:bg-primary/90'
               }
             >
-              {submitting ? 'Working…' : 'Submit'}
+              {submitting ? 'Working…' : agentOnline !== true ? 'Start agent to submit' : 'Submit'}
             </Button>
           </div>
         </div>
