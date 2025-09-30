@@ -16,7 +16,12 @@ try {
   // Prefer local bundled selenium core
   runSeleniumCore = require('./runner-core-selenium').runSelenium;
 } catch (e) {
-  runSeleniumCore = null;
+  try {
+    // Try resolving relative to this file when packaged
+    runSeleniumCore = require(path.join(__dirname, 'runner-core-selenium')).runSelenium;
+  } catch (e2) {
+    runSeleniumCore = null;
+  }
 }
 
 const PORT = process.env.IDT_AGENT_PORT ? Number(process.env.IDT_AGENT_PORT) : 4599;
@@ -43,7 +48,7 @@ function send(res, status, body) {
 }
 
 async function runCsv(csv) {
-  // If selenium core is available, run in-process for reliability (no missing path issues)
+  // Always prefer in-process core; do not fallback to legacy runner path
   if (runSeleniumCore) {
     try {
       const res = await runSeleniumCore({ csv, test: false });
@@ -52,19 +57,7 @@ async function runCsv(csv) {
       return { code: 1, out: String(e && e.message || e) };
     }
   }
-  // Fallback: try legacy selenium runner script if present
-  return new Promise((resolve) => {
-    const b64 = Buffer.from(csv, 'utf8').toString('base64');
-    const runner = path.join(process.cwd(), 'scripts', 'selenium-runner.js');
-    const env = Object.assign({}, process.env, {
-      IDT_KEEP_OPEN_MS: process.env.IDT_KEEP_OPEN_MS || '6000',
-    });
-    const child = spawn(process.execPath, [runner, b64], { stdio: ['ignore', 'pipe', 'pipe'], env });
-    let out = '';
-    child.stdout.on('data', (d) => (out += d.toString()));
-    child.stderr.on('data', (d) => (out += d.toString()));
-    child.on('close', (code) => resolve({ code, out }));
-  });
+  return { code: 1, out: '[agent] Core runner missing. Please update the agent to a version that bundles runner-core-selenium.' };
 }
 
 function openUrl(url) {
@@ -135,19 +128,9 @@ const server = http.createServer(async (req, res) => {
     req.on('end', async () => {
       try {
         const csv = 'NAME,SEQUENCE,SCALE,PURIFICATION';
-        if (runSeleniumCore) {
-          const result = await runSeleniumCore({ csv, test: true });
-          return send(res, 200, { ok: !!result.ok, code: result.ok ? 0 : 1, output: result.output || '' });
-        } else {
-          // Fallback to legacy selenium-runner in test mode (will just open page and sleep)
-          const runner = path.join(process.cwd(), 'scripts', 'selenium-runner.js');
-          const env = Object.assign({}, process.env, { IDT_KEEP_OPEN_MS: process.env.IDT_KEEP_OPEN_MS || '3000' });
-          const child = spawn(process.execPath, [runner, Buffer.from(csv, 'utf8').toString('base64')], { stdio: ['ignore', 'pipe', 'pipe'], env });
-          let out = '';
-          child.stdout.on('data', (d) => (out += d.toString()));
-          child.stderr.on('data', (d) => (out += d.toString()));
-          child.on('close', (code) => send(res, 200, { ok: code === 0, code, output: out }));
-        }
+        if (!runSeleniumCore) return send(res, 500, { ok: false, error: 'Core runner missing. Update agent.' });
+        const result = await runSeleniumCore({ csv, test: true });
+        return send(res, 200, { ok: !!result.ok, code: result.ok ? 0 : 1, output: result.output || '' });
       } catch (e) {
         return send(res, 500, { ok: false, error: String(e && e.message || e) });
       }
@@ -158,18 +141,9 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'GET' && req.url === '/test') {
     try {
       const csv = 'NAME,SEQUENCE,SCALE,PURIFICATION';
-      if (runSeleniumCore) {
-        const result = await runSeleniumCore({ csv, test: true });
-        return send(res, 200, { ok: !!result.ok, code: result.ok ? 0 : 1, output: result.output || '' });
-      } else {
-        const runner = path.join(process.cwd(), 'scripts', 'selenium-runner.js');
-        const env = Object.assign({}, process.env, { IDT_KEEP_OPEN_MS: process.env.IDT_KEEP_OPEN_MS || '3000' });
-        const child = spawn(process.execPath, [runner, Buffer.from(csv, 'utf8').toString('base64')], { stdio: ['ignore', 'pipe', 'pipe'], env });
-        let out = '';
-        child.stdout.on('data', (d) => (out += d.toString()));
-        child.stderr.on('data', (d) => (out += d.toString()));
-        child.on('close', (code) => send(res, 200, { ok: code === 0, code, output: out }));
-      }
+      if (!runSeleniumCore) return send(res, 500, { ok: false, error: 'Core runner missing. Update agent.' });
+      const result = await runSeleniumCore({ csv, test: true });
+      return send(res, 200, { ok: !!result.ok, code: result.ok ? 0 : 1, output: result.output || '' });
     } catch (e) {
       return send(res, 500, { ok: false, error: String(e && e.message || e) });
     }
