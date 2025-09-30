@@ -95,8 +95,26 @@ jobs:
           test -d "$dst/node_modules/ws" || { echo 'ws missing'; exit 1; }
           test -d "$dst/node_modules/@bazel/runfiles" || { echo '@bazel/runfiles missing'; exit 1; }
           export IDT_AGENT_PORT=4799
-          "$dst/idt-agent" &
+          # Ensure binary is executable
+          chmod +x "$dst/idt-agent" || true
+          # Start agent and capture logs for debugging
+          AGENT_LOG="$dst/agent.log"
+          "$dst/idt-agent" > "$AGENT_LOG" 2>&1 &
           pid=$!
-          sleep 2
-          curl -sf "http://127.0.0.1:${IDT_AGENT_PORT}/health" >/dev/null
+          # Poll /health for up to 15 seconds
+          ok=1
+          for i in $(seq 1 15); do
+            if curl -sf "http://127.0.0.1:${IDT_AGENT_PORT}/health" >/dev/null 2>&1; then
+              ok=0
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ok" -ne 0 ]; then
+            echo 'Portability smoke test failed: /health not reachable. Agent log follows:'
+            sed -n '1,200p' "$AGENT_LOG" || true
+            kill "$pid" || true
+            exit 1
+          fi
+          # success - stop agent
           kill "$pid" || true
