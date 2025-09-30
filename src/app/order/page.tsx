@@ -1,4 +1,5 @@
 "use client";
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 
 import * as React from "react";
 import { useForm, useFieldArray, Controller, type SubmitHandler } from "react-hook-form";
@@ -18,7 +19,8 @@ import { kindOptions, scaleOptions, purificationOptions, fivePrimeOptions, three
 import { LineItem, OrderPayloadSchema } from "@/lib/schema";
 import { generateOrderCode } from "@/lib/order-code";
 
-type FormValues = z.infer<typeof OrderPayloadSchema>;
+// Use z.input to align with zodResolver input type semantics (defaulted fields are optional on input)
+type FormValues = z.input<typeof OrderPayloadSchema>;
 
 function newId() {
   return Math.random().toString(36).slice(2, 10);
@@ -55,6 +57,28 @@ export default function OrderPage() {
   const loadedFromStorageRef = React.useRef(false);
   const [multiAddCount, setMultiAddCount] = React.useState(5);
   const [openClear, setOpenClear] = React.useState(false);
+  const [openAgentHelp, setOpenAgentHelp] = React.useState(false);
+  const [agentOnline, setAgentOnline] = React.useState<null | boolean>(null);
+  const downloadWin = process.env.NEXT_PUBLIC_AGENT_WIN_URL || '';
+  const downloadMac = process.env.NEXT_PUBLIC_AGENT_MAC_URL || '';
+
+  React.useEffect(() => {
+    let cancelled = false;
+    async function ping() {
+      try {
+        const controller = new AbortController();
+        const to = setTimeout(() => controller.abort(), 1500);
+        const res = await fetch('http://127.0.0.1:4599/health', { signal: controller.signal });
+        clearTimeout(to);
+        if (!cancelled) setAgentOnline(res.ok);
+      } catch {
+        if (!cancelled) setAgentOnline(false);
+      }
+    }
+    ping();
+    const id = setInterval(ping, 8000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, []);
 
   // Load from localStorage on mount
   React.useEffect(() => {
@@ -126,6 +150,46 @@ export default function OrderPage() {
       toast.success('Exported lines');
     } catch (e) {
       toast.error('Export failed');
+    }
+  }
+
+  // Build CSV from current items (skip blanks)
+  function buildCsv(items: FormValues["items"]) {
+    function csvField(v: string) {
+      if (/[",\n]/.test(v)) return '"' + v.replace(/"/g, '""') + '"';
+      return v;
+    }
+    const lines: string[] = [];
+    (items || []).forEach((it) => {
+      const name = (it?.name || '').trim();
+      const seq = (it?.sequence || '').trim().toUpperCase();
+      if (!name || !seq) return;
+      const scale = it?.params?.scale || '25nm';
+      const purification = it?.params?.purification || 'STD';
+      lines.push([csvField(name), csvField(seq), scale, purification].join(','));
+    });
+    return lines.join('\n');
+  }
+
+  function handleExportCsv() {
+    try {
+      const csv = buildCsv(items || []);
+      if (!csv) {
+        toast.error('No valid lines to export');
+        return;
+      }
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'idt-bulk.csv';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast.success('Exported CSV');
+    } catch (e) {
+      toast.error('CSV export failed');
     }
   }
 
@@ -206,6 +270,28 @@ export default function OrderPage() {
   // - Default scale -> "25nmole"
   // - Default purification -> "STD" (standard desalt)
   // This replaces the console content (does not append).
+  async function submitViaLocalAgent(csv: string, count: number) {
+    const controller = new AbortController();
+    const to = setTimeout(() => controller.abort(), 5000);
+    try {
+      const res = await fetch('http://127.0.0.1:4599/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ csv, count }),
+        signal: controller.signal,
+        mode: 'cors',
+      });
+      clearTimeout(to);
+      if (!res.ok) throw new Error('Agent returned error');
+      const data = await res.json();
+      if (!data?.ok) throw new Error('Agent run failed');
+      return true;
+    } catch (e) {
+      clearTimeout(to);
+      return false;
+    }
+  }
+
   const onSubmit: SubmitHandler<FormValues> = async (values) => {
   if (submitting) return; // anti-spam guard
     // Validate all lines before proceeding
@@ -242,14 +328,24 @@ export default function OrderPage() {
 
     setSubmitting(true);
     try {
-      await fetch('/api/run-selenium', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ csv: text, count: lines.length }),
-      });
-      toast.success('Submission started');
-    } catch (e) {
-      toast.error('Failed to start automation');
+      // Try local agent first for Vercel-hosted site compatibility
+      const okLocal = await submitViaLocalAgent(text, lines.length);
+      if (okLocal) {
+        toast.success('Agent started automation');
+      } else {
+        // Fallback to server API (may not work on Vercel serverless)
+        try {
+          await fetch('/api/run-selenium', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ csv: text, count: lines.length }),
+          });
+          toast.success('Server started automation');
+        } catch (e) {
+          setOpenAgentHelp(true);
+          toast.error('Agent not found. See help.');
+        }
+      }
     } finally {
       // small delay to give user feedback and prevent immediate re-click
       setTimeout(() => setSubmitting(false), 1200);
@@ -268,6 +364,13 @@ export default function OrderPage() {
           {/* Console was moved below header to span full width */}
         </div>
         <div className="flex items-start gap-4">
+          <div className="flex items-center gap-2 text-xs border rounded-md px-3 py-2 bg-muted/40">
+            <div className={`w-2.5 h-2.5 rounded-full ${agentOnline ? 'bg-green-500' : agentOnline === false ? 'bg-red-500' : 'bg-gray-400'}`} />
+            <span className="select-none">Agent: {agentOnline ? 'Online' : agentOnline === false ? 'Offline' : 'Checking…'}</span>
+            {!agentOnline && (
+              <button type="button" className="underline text-blue-600" onClick={() => setOpenAgentHelp(true)}>Help</button>
+            )}
+          </div>
           {/* Import / Export / Clear Controls (styled to align with other tool groups) */}
           <div className="flex items-center gap-2 text-xs border rounded-md px-3 py-2 bg-muted/40">
             <Button
@@ -285,6 +388,14 @@ export default function OrderPage() {
               className="h-7 bg-red-600 hover:bg-red-500 text-white px-3"
             >
               Export
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              onClick={handleExportCsv}
+              className="h-7 px-3 bg-blue-600 hover:bg-blue-500 text-white"
+            >
+              Export CSV
             </Button>
             <Dialog open={openClear} onOpenChange={setOpenClear}>
               <DialogTrigger asChild>
@@ -391,6 +502,37 @@ export default function OrderPage() {
           </div>
         </div>
       </header>
+
+      {/* Agent Help Dialog */}
+      <Dialog open={openAgentHelp} onOpenChange={setOpenAgentHelp}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Start the local agent</DialogTitle>
+            <DialogDescription>
+              To run automation when hosted on Vercel, please start the local agent. It listens on 127.0.0.1:4599 and launches Chrome to place your order.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 text-sm">
+            <p>
+              1) Download and run the agent binary (Windows/mac). Or run it from source via <code>npm run agent</code>.
+            </p>
+            <div className="flex gap-3 text-xs">
+              {downloadWin ? <a className="underline text-blue-600" href={downloadWin} target="_blank">Download for Windows</a> : null}
+              {downloadMac ? <a className="underline text-blue-600" href={downloadMac} target="_blank">Download for macOS</a> : null}
+            </div>
+            <p>
+              2) Keep this page open and click Submit again.
+            </p>
+            <p className="text-muted-foreground">Agent URL: http://127.0.0.1:4599/run</p>
+          </div>
+          <DialogFooter>
+            <a className="underline text-blue-600" href="/agent" onClick={() => setOpenAgentHelp(false)}>Open agent instructions</a>
+            <DialogClose asChild>
+              <Button type="button" variant="secondary">Close</Button>
+            </DialogClose>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
   {/* Console removed per user request */}
 

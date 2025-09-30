@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { spawn } from 'child_process'
 import path from 'path'
+import fs from 'fs'
 
 function runScript(scriptPath: string, arg: string): Promise<{ code: number | null; output: string }> {
   return new Promise((resolve, reject) => {
@@ -35,12 +36,15 @@ export async function POST(request: Request) {
   // Encode CSV as base64 to safely pass as an argument
   const b64 = Buffer.from(csv, 'utf8').toString('base64')
 
-  const scriptPath = path.join(process.cwd(), 'scripts', 'selenium-runner.js')
+  // Prefer lightweight puppeteer-core runner if available, else fallback to selenium-runner
+  const cliRunner = path.join(process.cwd(), 'scripts', 'cli-runner.js')
+  const scriptPath = fs.existsSync(cliRunner) ? cliRunner : path.join(process.cwd(), 'scripts', 'selenium-runner.js')
 
   try {
     const result = await runScript(scriptPath, b64);
     return NextResponse.json({ ok: result.code === 0, code: result.code, output: result.output });
-  } catch (err: any) {
+  } catch (err) {
+    // eslint-disable-next-line @typescript-eslint/no-base-to-string
     return NextResponse.json({ ok: false, error: String(err) }, { status: 500 });
   }
 }

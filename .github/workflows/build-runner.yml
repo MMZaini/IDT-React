@@ -1,0 +1,28 @@
+name: Build Windows Runner
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - 'scripts/cli-runner.js'
+      - 'package.json'
+
+jobs:
+  build-win-runner:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install deps
+        run: npm ci
+      - name: Build exe with pkg (node16 target)
+        run: npm run pkg:win
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: idt-runner-exe
+          path: dist/idt-runner.exe
+          if-no-files-found: error

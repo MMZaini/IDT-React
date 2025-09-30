@@ -6,7 +6,13 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "run:cli": "node scripts/cli-runner.js",
+  "agent": "node scripts/local-agent.js",
+  "pkg:win": "pkg --compress Brotli --targets node16-win-x64 --output dist/idt-runner.exe scripts/cli-runner.js",
+  "pkg:agent:win": "pkg --compress Brotli --targets node16-win-x64 --output dist/idt-agent.exe scripts/local-agent.js",
+  "pkg:agent:mac": "pkg --compress Brotli --targets node16-mac-x64 --output dist/idt-agent scripts/local-agent.js",
+  "pkg:mac": "pkg --compress Brotli --targets node16-mac-x64 --output dist/idt-runner scripts/cli-runner.js"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.1",
@@ -18,7 +24,7 @@
     "@radix-ui/react-slot": "^1.2.3",
     "@tanstack/react-table": "^8.21.3",
     "chromedriver": "^140.0.1",
-    "class-variance-authority": "^0.7.1",
+  "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "framer-motion": "^12.23.12",
     "lucide-react": "^0.543.0",
@@ -42,6 +48,9 @@
     "eslint-config-next": "15.5.2",
     "tailwindcss": "^4",
     "tw-animate-css": "^1.3.8",
-    "typescript": "^5"
+    "typescript": "^5",
+    "pkg": "^5.8.1",
+    "nexe": "^4.0.0-beta.19",
+    "puppeteer-core": "^23.10.4"
   }
 }
