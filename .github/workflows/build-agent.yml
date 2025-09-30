@@ -6,7 +6,12 @@ on:
     branches: [ main ]
     paths:
       - 'scripts/local-agent.js'
+      - 'scripts/runner-core-selenium.js'
+      - 'scripts/copy-chromedriver.js'
+      - 'scripts/copy-runtime-deps.js'
+      - 'scripts/generate-dist-readme.js'
       - 'package.json'
+      - 'package-lock.json'
 
 jobs:
   build-windows:
@@ -16,6 +21,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
+          cache: 'npm'
       - name: Install deps
         run: npm install
       - name: Build agent exe + copy runtime deps
@@ -26,6 +32,33 @@ jobs:
           name: idt-agent-windows
           path: dist/**
           if-no-files-found: error
+      - name: Portability smoke test (moved folder)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dst = "$env:TEMP\idt-agent-portable-test"
+          if (Test-Path $dst) { Remove-Item -Recurse -Force $dst }
+          New-Item -ItemType Directory -Path $dst | Out-Null
+          Copy-Item -Recurse -Force .\dist\* $dst
+          # quick file assertions
+          if (!(Test-Path "$dst\idt-agent.exe")) { throw 'idt-agent.exe missing' }
+          if (!(Test-Path "$dst\runner-core-selenium.js")) { throw 'runner-core-selenium.js missing' }
+          if (!(Test-Path "$dst\chromedriver.exe")) { throw 'chromedriver.exe missing' }
+          if (!(Test-Path "$dst\node_modules\selenium-webdriver")) { throw 'selenium-webdriver missing' }
+          if (!(Test-Path "$dst\node_modules\tmp")) { throw 'tmp module missing' }
+          if (!(Test-Path "$dst\node_modules\jszip")) { throw 'jszip module missing' }
+          if (!(Test-Path "$dst\node_modules\setimmediate")) { throw 'setimmediate module missing' }
+          if (!(Test-Path "$dst\node_modules\ws")) { throw 'ws module missing' }
+          if (!(Test-Path "$dst\node_modules\@bazel\runfiles")) { throw '@bazel/runfiles module missing' }
+          $env:IDT_AGENT_PORT = '4799'
+          $p = Start-Process -FilePath "$dst\idt-agent.exe" -PassThru
+          try {
+            Start-Sleep -Seconds 2
+            $res = Invoke-WebRequest -Uri "http://127.0.0.1:$($env:IDT_AGENT_PORT)/health" -UseBasicParsing -TimeoutSec 5
+            if ($res.StatusCode -ne 200) { throw "health returned $($res.StatusCode)" }
+          } finally {
+            try { Stop-Process -Id $p.Id -Force } catch {}
+          }
 
   build-macos:
     runs-on: macos-latest
@@ -34,6 +67,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
+          cache: 'npm'
       - name: Install deps
         run: npm install
       - name: Build agent (mac) and copy runtime deps
@@ -47,3 +81,22 @@ jobs:
           name: idt-agent-macos
           path: dist/**
           if-no-files-found: error
+      - name: Portability smoke test (moved folder)
+        run: |
+          set -euo pipefail
+          dst="$(mktemp -d)"/idt-agent-portable-test
+          mkdir -p "$dst"
+          cp -R dist/* "$dst"/
+          test -f "$dst/idt-agent" || { echo 'idt-agent missing' ; exit 1; }
+          test -f "$dst/runner-core-selenium.js" || { echo 'runner-core-selenium.js missing'; exit 1; }
+          test -d "$dst/node_modules/selenium-webdriver" || { echo 'selenium-webdriver missing'; exit 1; }
+          test -d "$dst/node_modules/tmp" || { echo 'tmp missing'; exit 1; }
+          test -d "$dst/node_modules/jszip" || { echo 'jszip missing'; exit 1; }
+          test -d "$dst/node_modules/ws" || { echo 'ws missing'; exit 1; }
+          test -d "$dst/node_modules/@bazel/runfiles" || { echo '@bazel/runfiles missing'; exit 1; }
+          export IDT_AGENT_PORT=4799
+          "$dst/idt-agent" &
+          pid=$!
+          sleep 2
+          curl -sf "http://127.0.0.1:${IDT_AGENT_PORT}/health" >/dev/null
+          kill "$pid" || true

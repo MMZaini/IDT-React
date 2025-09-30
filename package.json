@@ -2,6 +2,21 @@
   "name": "idt-orderer",
   "version": "0.1.0",
   "private": true,
+  "pkg": {
+    "assets": [
+      "scripts/runner-core-selenium.js",
+      "node_modules/selenium-webdriver/**/*",
+      "node_modules/chromedriver/lib/chromedriver/**/*",
+      "node_modules/tmp/**/*",
+      "node_modules/jszip/**/*",
+  "node_modules/setimmediate/**/*",
+      "node_modules/ws/**/*",
+      "node_modules/@bazel/runfiles/**/*"
+    ],
+    "scripts": [
+      "scripts/runner-core-selenium.js"
+    ]
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",

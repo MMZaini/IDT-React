@@ -37,8 +37,26 @@ export async function POST(request: Request) {
   const b64 = Buffer.from(csv, 'utf8').toString('base64')
 
   // Prefer lightweight puppeteer-core runner if available, else fallback to selenium-runner
-  const cliRunner = path.join(process.cwd(), 'scripts', 'cli-runner.js')
-  const scriptPath = fs.existsSync(cliRunner) ? cliRunner : path.join(process.cwd(), 'scripts', 'selenium-runner.js')
+  const bases = new Set<string>();
+  bases.add(process.cwd());
+  if (process.env.IDT_AGENT_BASE) bases.add(path.resolve(process.env.IDT_AGENT_BASE));
+  // also consider the directory of this file when running in dev
+  bases.add(path.resolve(__dirname, '../../../../scripts'));
+
+  let scriptPath = '';
+  for (const b of bases) {
+    const c = path.join(b, 'scripts', 'cli-runner.js');
+    if (fs.existsSync(c)) { scriptPath = c; break; }
+  }
+  if (!scriptPath) {
+    for (const b of bases) {
+      const s = path.join(b, 'scripts', 'selenium-runner.js');
+      if (fs.existsSync(s)) { scriptPath = s; break; }
+    }
+  }
+  if (!scriptPath) {
+    return NextResponse.json({ ok: false, error: 'Runner script not found' }, { status: 500 });
+  }
 
   try {
     const result = await runScript(scriptPath, b64);

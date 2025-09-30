@@ -63,28 +63,7 @@ export default function OrderPage() {
   const [agentPlatform, setAgentPlatform] = React.useState<string>('');
   const downloadWin = process.env.NEXT_PUBLIC_AGENT_WIN_URL || '';
   const downloadMac = process.env.NEXT_PUBLIC_AGENT_MAC_URL || '';
-  const [consoleLines, setConsoleLines] = React.useState<string[]>([]);
-  const consoleRef = React.useRef<HTMLDivElement | null>(null);
-
-  function appendLog(...lines: string[]) {
-    setConsoleLines((prev) => [...prev, ...lines.map(l => `${new Date().toLocaleTimeString()}  ${l}`)]);
-  }
-
-  function appendOutput(prefix: string, out?: string) {
-    if (!out) return;
-    const parts = out.split(/\r?\n/).filter(Boolean);
-    if (parts.length === 0) return;
-    appendLog(`${prefix}:`, ...parts.map(l => `  ${l}`));
-  }
-
-  function clearConsole() {
-    setConsoleLines([]);
-  }
-
-  React.useEffect(() => {
-    if (!consoleRef.current) return;
-    consoleRef.current.scrollTop = consoleRef.current.scrollHeight;
-  }, [consoleLines]);
+  // Debug console removed
 
   React.useEffect(() => {
     let cancelled = false;
@@ -294,7 +273,7 @@ export default function OrderPage() {
       clearTimeout(to);
       let data: any = null;
       try { data = await res.json(); } catch {}
-      appendOutput('Agent output', data && data.output);
+  // Agent output suppressed in UI (was previously shown in debug console)
       return { ok: !!(res.ok && data && data.ok), status: res.status, output: data && (data.output || data.error) };
     } catch (e) {
       clearTimeout(to);
@@ -342,7 +321,7 @@ export default function OrderPage() {
       const local = await submitViaLocalAgent(text, lines.length);
       if (local.ok) {
         toast.success('Automation started via local agent');
-        appendLog('Local agent accepted job.');
+  toast.success('Local agent accepted job.');
       } else {
         // Suppress failure UI per request; do not log to console
       }
@@ -357,21 +336,7 @@ export default function OrderPage() {
   return (
     <div className="mx-auto max-w-6xl p-6 space-y-6">
       {/* Debug Console */}
-      <div className="rounded-lg border bg-muted/40">
-        <div className="flex items-center justify-between px-3 py-2">
-          <div className="text-xs font-medium">Debug console</div>
-          <div className="flex items-center gap-2">
-            <Button type="button" variant="outline" size="sm" className="h-7 px-2" onClick={() => clearConsole()}>Clear</Button>
-          </div>
-        </div>
-        <div ref={consoleRef} className="px-3 pb-3 h-44 overflow-y-auto font-mono text-xs whitespace-pre-wrap leading-relaxed">
-          {consoleLines.length === 0 ? (
-            <div className="text-muted-foreground">No logs yet. Actions and agent output will appear here.</div>
-          ) : (
-            consoleLines.map((l, i) => <div key={i}>{l}</div>)
-          )}
-        </div>
-      </div>
+        {/* Debug Console removed */}
       <header className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">IDT Bulk Ordering</h1>

@@ -1,35 +1,70 @@
-const { Builder, By, until } = require('selenium-webdriver');
-const chrome = require('selenium-webdriver/chrome');
 const path = require('path');
 const fs = require('fs');
 
-// Helper: prefer a chromedriver binary placed next to the packaged exe (dist/)
-// If not present, fall back to the chromedriver npm package (which registers a PATH entry).
+// Resolve modules explicitly from sidecar node_modules next to the exe (portable)
+function getBaseModulePaths() {
+  const bases = [];
+  try {
+    if (process.pkg) bases.push(path.join(path.dirname(process.execPath), 'node_modules'));
+  } catch {}
+  try { bases.push(path.join(process.cwd(), 'node_modules')); } catch {}
+  try { bases.push(path.join(__dirname, 'node_modules')); } catch {}
+  return bases;
+}
+
+function requireFromBases(spec) {
+  const paths = getBaseModulePaths();
+  try {
+    const resolved = require.resolve(spec, { paths });
+    return require(resolved);
+  } catch (e) {
+    // final fallback to normal require
+    return require(spec);
+  }
+}
+
+const { Builder, By, until } = requireFromBases('selenium-webdriver');
+const chrome = requireFromBases('selenium-webdriver/chrome');
+
+// Discover possible runtime bases so the agent works when moved anywhere.
+function getRuntimeBases() {
+  const bases = new Set();
+  if (process.env.IDT_AGENT_BASE) {
+    try { bases.add(path.resolve(process.env.IDT_AGENT_BASE)); } catch {}
+  }
+  try { if (process.pkg) bases.add(path.dirname(process.execPath)); } catch {}
+  try { if (require.main && require.main.filename) bases.add(path.dirname(require.main.filename)); } catch {}
+  try { bases.add(process.cwd()); } catch {}
+  bases.add(__dirname);
+  return Array.from(bases);
+}
+
+// Helper: prefer a chromedriver binary placed next to the exe or runner file; walk up parents; else fall back to npm package.
 function getChromeServiceBuilder() {
   try {
-    const base = process.pkg ? path.dirname(process.execPath) : process.cwd();
-    const candidates = [];
+    const bases = getRuntimeBases();
+    const maxUp = 5;
+    const rels = [];
     if (process.platform === 'win32') {
-      candidates.push(path.join(base, 'chromedriver.exe'));
+      rels.push('chromedriver.exe');
     } else {
-      candidates.push(path.join(base, 'chromedriver'));
+      rels.push('chromedriver');
     }
+    rels.push(path.join('node_modules', 'chromedriver', 'lib', 'chromedriver'));
+    if (process.platform === 'win32') rels.push(path.join('node_modules', 'chromedriver', 'lib', 'chromedriver.exe'));
 
-    // Also check common node_modules install location relative to this file
-    const nmBase = path.resolve(__dirname, '..', 'node_modules', 'chromedriver', 'lib', 'chromedriver');
-    if (process.platform === 'win32') {
-      candidates.push(path.join(nmBase, 'chromedriver.exe'));
-    } else {
-      candidates.push(path.join(nmBase, 'chromedriver'));
+    for (const base of bases) {
+      for (let up = 0; up <= maxUp; up++) {
+        const prefix = up === 0 ? base : path.resolve(base, ...Array(up).fill('..'));
+        for (const r of rels) {
+          const candidate = path.join(prefix, r);
+          try { if (fs.existsSync(candidate)) return new chrome.ServiceBuilder(candidate); } catch {}
+        }
+      }
     }
+  } catch {}
 
-    for (const p of candidates) {
-      try { if (fs.existsSync(p)) return new chrome.ServiceBuilder(p); } catch (e) {}
-    }
-  } catch (e) {}
-
-  // Final fallback: try the chromedriver npm package which usually registers the binary on PATH
-  try { require('chromedriver'); return new chrome.ServiceBuilder(); } catch (e) {}
+  try { requireFromBases('chromedriver'); return new chrome.ServiceBuilder(); } catch {}
   return null;
 }
 

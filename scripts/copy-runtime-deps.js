@@ -5,7 +5,16 @@ const path = require('path');
 // Copies a small set of node_modules into dist/node_modules so packaged exe can require them from disk.
 // Adjust list below for modules needed at runtime by runner-core-selenium.
 
-const modules = ['selenium-webdriver', 'chromedriver'];
+const modules = [
+  'selenium-webdriver',
+  'chromedriver',
+  // direct runtime deps of selenium-webdriver
+  'tmp',
+  'jszip',
+  'setimmediate',
+  'ws',
+  '@bazel/runfiles',
+];
 
 function copyDir(src, dest) {
   if (!fs.existsSync(src)) return false;
