@@ -20,9 +20,9 @@ jobs:
         run: npm ci
       - name: Build exe with pkg (node16 target)
         run: npm run pkg:win
-      - name: Upload artifact
+      - name: Upload artifact (full dist)
         uses: actions/upload-artifact@v4
         with:
           name: idt-runner-exe
-          path: dist/idt-runner.exe
+          path: dist/**
           if-no-files-found: error

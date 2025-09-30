@@ -18,13 +18,13 @@ jobs:
           node-version: '20'
       - name: Install deps
         run: npm ci
-      - name: Build agent exe
-        run: npm run pkg:agent:win
-      - name: Upload artifact
+      - name: Build agent exe + copy runtime deps
+        run: npm run pkg:agent:win:with-chromedriver
+      - name: Upload artifact (full dist)
         uses: actions/upload-artifact@v4
         with:
           name: idt-agent-windows
-          path: dist/idt-agent.exe
+          path: dist/**
           if-no-files-found: error
 
   build-macos:
@@ -36,11 +36,14 @@ jobs:
           node-version: '20'
       - name: Install deps
         run: npm ci
-      - name: Build agent (mac)
-        run: npm run pkg:agent:mac
-      - name: Upload artifact
+      - name: Build agent (mac) and copy runtime deps
+        run: |
+          npm run pkg:agent:mac
+          node scripts/copy-chromedriver.js || true
+          node scripts/copy-runtime-deps.js || true
+      - name: Upload artifact (full dist)
         uses: actions/upload-artifact@v4
         with:
           name: idt-agent-macos
-          path: dist/idt-agent
+          path: dist/**
           if-no-files-found: error

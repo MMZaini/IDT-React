@@ -65,8 +65,6 @@ export default function OrderPage() {
   const downloadMac = process.env.NEXT_PUBLIC_AGENT_MAC_URL || '';
   const [consoleLines, setConsoleLines] = React.useState<string[]>([]);
   const consoleRef = React.useRef<HTMLDivElement | null>(null);
-  const logsPollRef = React.useRef<{ timer: any, lastCount: number } | null>(null);
-  const [autoScroll, setAutoScroll] = React.useState(true);
 
   function appendLog(...lines: string[]) {
     setConsoleLines((prev) => [...prev, ...lines.map(l => `${new Date().toLocaleTimeString()}  ${l}`)]);
@@ -83,58 +81,10 @@ export default function OrderPage() {
     setConsoleLines([]);
   }
 
-  function copyConsole() {
-    const text = consoleLines.join('\n');
-    navigator.clipboard.writeText(text).then(() => {
-      toast.success('Console output copied to clipboard');
-    }).catch(() => {
-      toast.error('Failed to copy');
-    });
-  }
-
-  async function pollAgentLogsStart() {
-    // Reset any prior poller
-    if (logsPollRef.current?.timer) clearInterval(logsPollRef.current.timer);
-    logsPollRef.current = { timer: null, lastCount: 0 } as any;
-    const run = async () => {
-      try {
-        const res = await fetch('http://127.0.0.1:4599/logs');
-        if (!res.ok) return;
-        const data = await res.json();
-        const lines: string[] = Array.isArray(data?.lines) ? data.lines : [];
-        const start = logsPollRef.current?.lastCount || 0;
-        const newLines = lines.slice(start);
-        if (newLines.length > 0) {
-          appendLog(...newLines);
-          if (logsPollRef.current) logsPollRef.current.lastCount = start + newLines.length;
-        }
-        if (data?.done) {
-          if (logsPollRef.current?.timer) clearInterval(logsPollRef.current.timer);
-          logsPollRef.current = null;
-        }
-      } catch {}
-    };
-    // prime once quickly then poll
-    await run();
-    const t = setInterval(run, 1000);
-    if (logsPollRef.current) logsPollRef.current.timer = t;
-  }
-
   React.useEffect(() => {
-    if (!consoleRef.current || !autoScroll) return;
+    if (!consoleRef.current) return;
     consoleRef.current.scrollTop = consoleRef.current.scrollHeight;
-  }, [consoleLines, autoScroll]);
-
-  React.useEffect(() => {
-    const el = consoleRef.current;
-    if (!el) return;
-    const handleScroll = () => {
-      const { scrollTop, scrollHeight, clientHeight } = el;
-      setAutoScroll(scrollTop + clientHeight >= scrollHeight - 10);
-    };
-    el.addEventListener('scroll', handleScroll);
-    return () => el.removeEventListener('scroll', handleScroll);
-  }, []);
+  }, [consoleLines]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -388,8 +338,6 @@ export default function OrderPage() {
 
     setSubmitting(true);
     try {
-      // Start polling agent logs for live console updates
-      pollAgentLogsStart();
       // Use only local agent path
       const local = await submitViaLocalAgent(text, lines.length);
       if (local.ok) {
@@ -413,7 +361,6 @@ export default function OrderPage() {
         <div className="flex items-center justify-between px-3 py-2">
           <div className="text-xs font-medium">Debug console</div>
           <div className="flex items-center gap-2">
-            <Button type="button" variant="outline" size="sm" className="h-7 px-2" onClick={() => copyConsole()}>Copy</Button>
             <Button type="button" variant="outline" size="sm" className="h-7 px-2" onClick={() => clearConsole()}>Clear</Button>
           </div>
         </div>

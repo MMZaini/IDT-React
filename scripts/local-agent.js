@@ -11,30 +11,25 @@ const { spawn } = require('child_process');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
-
-// --- Use original Selenium core runner ---
-const { runSelenium } = require('./runner-core-selenium');
-
-// Live logs buffer for current run
-let currentRun = null; // { id: string, lines: string[], done: boolean }
-function startLogBuffer() {
-  currentRun = { id: String(Date.now()), lines: [], done: false };
+let runSeleniumCore;
+// Helper base path: when packaged, prefer the directory next to the exe; otherwise use this file's dirname
+const realBase = process.pkg ? path.dirname(process.execPath) : __dirname;
+try {
+  // First try in-process require (works in dev and often in pkg)
+  runSeleniumCore = require('./runner-core-selenium').runSelenium;
+} catch (e) {
+  // Failed to load in-snapshot module; will try to load from real filesystem next to the exe.
+  console.warn('[idt-agent] runner-core-selenium not found in snapshot; attempting to load from disk');
+  try {
+    // Try requiring the module from the real filesystem base (next to exe when packaged)
+    const candidate = path.join(realBase, 'runner-core-selenium');
+    runSeleniumCore = require(candidate).runSelenium;
+  } catch (e2) {
+    // Final failure: runner not available on disk or in snapshot. Keep a concise warning.
+    console.warn('[idt-agent] runner-core-selenium not available; agent will return core-missing on /run and /test');
+    runSeleniumCore = null;
+  }
 }
-function pushLogLine(line) {
-  if (currentRun) currentRun.lines.push(line);
-}
-function finishLogBuffer() {
-  if (currentRun) currentRun.done = true;
-}
-
-function createLogger() {
-  const lines = [];
-  return {
-    log: (...args) => { const s = args.map(a => String(a)).join(' '); lines.push(s); try { pushLogLine(s); } catch {} },
-    output: () => lines.join('\n')
-  };
-}
-// No puppeteer helpers; rely on Selenium core implementation
 
 const PORT = process.env.IDT_AGENT_PORT ? Number(process.env.IDT_AGENT_PORT) : 4599;
 // Load optional sidecar config (next to binary in packaged mode, or cwd in dev)
@@ -60,15 +55,16 @@ function send(res, status, body) {
 }
 
 async function runCsv(csv) {
-  try {
-    startLogBuffer();
-    const res = await runSelenium({ csv, test: false }, createLogger());
-    finishLogBuffer();
-    return { code: res.ok ? 0 : 1, out: res.output || '' };
-  } catch (e) {
-    finishLogBuffer();
-    return { code: 1, out: String(e && e.message || e) };
+  // Always prefer in-process core; do not fallback to legacy runner path
+  if (runSeleniumCore) {
+    try {
+      const res = await runSeleniumCore({ csv, test: false });
+      return { code: res.ok ? 0 : 1, out: res.output || '' };
+    } catch (e) {
+      return { code: 1, out: String(e && e.message || e) };
+    }
   }
+  return { code: 1, out: '[agent] Core runner missing. Please update the agent to a version that bundles runner-core-selenium.' };
 }
 
 function openUrl(url) {
@@ -133,20 +129,14 @@ const server = http.createServer(async (req, res) => {
     return send(res, 200, { ok: true, version: AGENT_VERSION, platform: process.platform });
   }
 
-  if (req.method === 'GET' && req.url === '/logs') {
-    const payload = currentRun ? { ok: true, id: currentRun.id, lines: currentRun.lines, done: currentRun.done } : { ok: true, id: null, lines: [], done: true };
-    return send(res, 200, payload);
-  }
-
   if (req.method === 'POST' && req.url === '/test') {
     let body = '';
     req.on('data', (chunk) => (body += chunk));
     req.on('end', async () => {
       try {
         const csv = 'NAME,SEQUENCE,SCALE,PURIFICATION';
-        startLogBuffer();
-        const result = await runSelenium({ csv, test: true }, createLogger());
-        finishLogBuffer();
+        if (!runSeleniumCore) return send(res, 500, { ok: false, error: 'Core runner missing. Update agent.' });
+        const result = await runSeleniumCore({ csv, test: true });
         return send(res, 200, { ok: !!result.ok, code: result.ok ? 0 : 1, output: result.output || '' });
       } catch (e) {
         return send(res, 500, { ok: false, error: String(e && e.message || e) });
@@ -158,9 +148,8 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'GET' && req.url === '/test') {
     try {
       const csv = 'NAME,SEQUENCE,SCALE,PURIFICATION';
-      startLogBuffer();
-      const result = await runSelenium({ csv, test: true }, createLogger());
-      finishLogBuffer();
+      if (!runSeleniumCore) return send(res, 500, { ok: false, error: 'Core runner missing. Update agent.' });
+      const result = await runSeleniumCore({ csv, test: true });
       return send(res, 200, { ok: !!result.ok, code: result.ok ? 0 : 1, output: result.output || '' });
     } catch (e) {
       return send(res, 500, { ok: false, error: String(e && e.message || e) });
