@@ -17,7 +17,7 @@ jobs:
         with:
           node-version: '20'
       - name: Install deps
-        run: npm ci
+        run: npm install
       - name: Build exe with pkg (node16 target)
         run: npm run pkg:win
       - name: Upload artifact (full dist)

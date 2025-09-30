@@ -19,14 +19,12 @@ try {
   runSeleniumCore = require('./runner-core-selenium').runSelenium;
 } catch (e) {
   // Failed to load in-snapshot module; will try to load from real filesystem next to the exe.
-  console.warn('[idt-agent] runner-core-selenium not found in snapshot; attempting to load from disk');
   try {
     // Try requiring the module from the real filesystem base (next to exe when packaged)
     const candidate = path.join(realBase, 'runner-core-selenium');
     runSeleniumCore = require(candidate).runSelenium;
   } catch (e2) {
-    // Final failure: runner not available on disk or in snapshot. Keep a concise warning.
-    console.warn('[idt-agent] runner-core-selenium not available; agent will return core-missing on /run and /test');
+  // Final failure: runner not available on disk or in snapshot.
     runSeleniumCore = null;
   }
 }

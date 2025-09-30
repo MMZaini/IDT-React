@@ -17,7 +17,7 @@ jobs:
         with:
           node-version: '20'
       - name: Install deps
-        run: npm ci
+        run: npm install
       - name: Build agent exe + copy runtime deps
         run: npm run pkg:agent:win:with-chromedriver
       - name: Upload artifact (full dist)
@@ -35,7 +35,7 @@ jobs:
         with:
           node-version: '20'
       - name: Install deps
-        run: npm ci
+        run: npm install
       - name: Build agent (mac) and copy runtime deps
         run: |
           npm run pkg:agent:mac
