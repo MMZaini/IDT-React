@@ -61,7 +61,9 @@ export default function OrderPage() {
   const [agentOnline, setAgentOnline] = React.useState<null | boolean>(null);
   const [agentVersion, setAgentVersion] = React.useState<string>('');
   const [agentPlatform, setAgentPlatform] = React.useState<string>('');
-  const downloadWin = process.env.NEXT_PUBLIC_AGENT_WIN_URL || '';
+  // Always prefer env override, otherwise fall back to the canonical release asset URL for Windows
+  const downloadWin = process.env.NEXT_PUBLIC_AGENT_WIN_URL || 'https://github.com/MMZaini/idt-react/releases/download/release/idt-agent-windows.zip';
+  // macOS downloads are not provided via the UI — show a disabled button instead
   const downloadMac = process.env.NEXT_PUBLIC_AGENT_MAC_URL || '';
   // Debug console removed
 
@@ -489,25 +491,22 @@ export default function OrderPage() {
               1) Download and run the agent binary (Windows/mac). Or run it from source via <code>npm run agent</code>.
             </p>
             <div className="flex flex-wrap gap-2">
-              {downloadWin ? <Button asChild size="sm" className="h-8"><a href={downloadWin} target="_blank">Download for Windows</a></Button> : null}
-              {downloadMac ? <Button asChild size="sm" variant="outline" className="h-8"><a href={downloadMac} target="_blank">Download for macOS</a></Button> : null}
+              {/* Windows: explicit release asset link and downloadable */}
+              {downloadWin ? (
+                <Button asChild size="sm" className="h-8">
+                  <a href={downloadWin} target="_blank" rel="noopener noreferrer" download>
+                    Download for Windows
+                  </a>
+                </Button>
+              ) : null}
+              {/* macOS: show a disabled, non-clickable button with grayed-out appearance */}
+              <Button size="sm" variant="outline" className="h-8 opacity-50 cursor-not-allowed" disabled>
+                Download for macOS
+              </Button>
             </div>
             {agentPlatform ? <p className="text-xs text-muted-foreground">Detected platform: {agentPlatform}</p> : null}
-            <p>
-              2) Keep this page open and click Submit again.
-            </p>
+            <p>2) Keep this page open and click Submit again.</p>
             <p className="text-muted-foreground">Agent URL: http://127.0.0.1:4599/run</p>
-            <div className="rounded-md border p-3 bg-muted/30">
-              <div className="text-xs font-medium mb-1">Advanced</div>
-              <div className="text-xs text-muted-foreground">Run from source (requires Node):</div>
-              <pre className="text-xs mt-1">npm run agent</pre>
-              <div className="text-xs text-muted-foreground mt-2">Troubleshooting:</div>
-              <ul className="list-disc ml-5 text-xs text-muted-foreground">
-                <li>Ensure Google Chrome is installed (the agent uses Chrome only).</li>
-                <li>If Chrome is in a custom path, set IDT_CHROME_PATH before running the agent.</li>
-                <li>Increase IDT_KEEP_OPEN_MS (e.g., 10000) to keep the window open longer.</li>
-              </ul>
-            </div>
           </div>
           <DialogFooter>
             <DialogClose asChild>
