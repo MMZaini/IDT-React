@@ -47,7 +47,7 @@ brew install gh              # macOS
 winget install GitHub.cli    # Windows
 
 # Verify download
-gh attestation verify idt-agent-windows-v1.0.0.zip -R MMZaini/idt-react
+gh attestation verify idt-agent-windows.zip -R MMZaini/idt-react
 ```
 
 **Success output:**
@@ -56,7 +56,7 @@ gh attestation verify idt-agent-windows-v1.0.0.zip -R MMZaini/idt-react
 
 sha256:abc123... was attested by:
 REPO                PREDICATE_TYPE                  WORKFLOW
-MMZaini/idt-react  https://slsa.dev/provenance/v1  .github/workflows/release-agent.yml@refs/tags/v1.0.0
+MMZaini/idt-react  https://slsa.dev/provenance/v1  .github/workflows/release-agent.yml@refs/tags/latest
 ```
 
 **What this proves:**
@@ -66,24 +66,15 @@ MMZaini/idt-react  https://slsa.dev/provenance/v1  .github/workflows/release-age
 
 ## Releases
 
-### Automatic Releases
+### Automatic Updates
 
-Push to `main` automatically creates a release when agent files change:
+Push to `main` automatically updates the release when agent files change:
 
 ```bash
 git push origin main
 ```
 
-Creates: `v0.1.0-{commit-sha}` (latest release, ready for users)
-
-### Stable Releases
-
-Create a git tag for stable versions:
-
-```bash
-git tag v1.0.0
-git push origin v1.0.0
-```
+Updates the `latest` tag with new builds. Downloads always get the most recent version.
 
 ### What Triggers Builds
 
@@ -101,10 +92,10 @@ Web UI changes (Next.js, React, CSS) don't trigger agent builds.
 - Does not create releases
 
 **Release Agent with Provenance** - `release-agent.yml`
-- Creates releases with cryptographic attestations
+- Creates/updates the `latest` release with cryptographic attestations
 - Triggers on push to main (auto), git tags, or manual dispatch
 - Builds for Windows and macOS
-- Includes stable-named files for `/latest/download` URLs
+- Always uses stable filenames (`idt-agent-windows.zip`, `idt-agent-macos.zip`)
 
 ## Deployment
 

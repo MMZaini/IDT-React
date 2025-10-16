@@ -60,11 +60,8 @@ jobs:
         id: archive
         shell: pwsh
         run: |
-          $version = "${{ github.ref_name }}"
-          if ("${{ github.event.inputs.version }}" -ne "") {
-            $version = "${{ github.event.inputs.version }}"
-          }
-          $zipName = "idt-agent-windows-$version.zip"
+          # Always use stable filename
+          $zipName = "idt-agent-windows.zip"
           Compress-Archive -Path dist\* -DestinationPath $zipName -Force
           echo "zip-name=$zipName" >> $env:GITHUB_OUTPUT
           echo "zip-path=$(Resolve-Path $zipName)" >> $env:GITHUB_OUTPUT
@@ -145,11 +142,8 @@ jobs:
       - name: Create distribution archive
         id: archive
         run: |
-          version="${{ github.ref_name }}"
-          if [ -n "${{ github.event.inputs.version }}" ]; then
-            version="${{ github.event.inputs.version }}"
-          fi
-          zip_name="idt-agent-macos-${version}.zip"
+          # Always use stable filename
+          zip_name="idt-agent-macos.zip"
           cd dist && zip -r "../${zip_name}" . && cd ..
           echo "zip-name=${zip_name}" >> $GITHUB_OUTPUT
           echo "zip-path=$(pwd)/${zip_name}" >> $GITHUB_OUTPUT
@@ -236,16 +230,13 @@ jobs:
       - name: Determine version
         id: version
         run: |
-          if [ -n "${{ github.event.inputs.version }}" ]; then
-            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
-          elif [[ "${{ github.ref }}" == refs/tags/* ]]; then
-            echo "version=${{ github.ref_name }}" >> $GITHUB_OUTPUT
-          else
-            # Auto-version from package.json with commit SHA
-            version=$(node -p "require('./package.json').version")
-            short_sha=$(git rev-parse --short HEAD)
-            echo "version=v${version}-${short_sha}" >> $GITHUB_OUTPUT
-          fi
+          # Use stable "latest" tag
+          echo "version=latest" >> $GITHUB_OUTPUT
+          
+          # Also capture build info for release notes
+          version=$(node -p "require('./package.json').version")
+          short_sha=$(git rev-parse --short HEAD)
+          echo "build-info=v${version}-${short_sha}" >> $GITHUB_OUTPUT
       
       - name: Generate release notes
         id: release-notes
@@ -258,12 +249,12 @@ jobs:
           ### Download & Install
           
           **Windows 10+:**
-          1. Download `idt-agent-windows-${{ steps.version.outputs.version }}.zip`
+          1. Download `idt-agent-windows.zip`
           2. Extract to any folder
           3. Run `idt-agent.exe`
           
           **macOS 10.15+:**
-          1. Download `idt-agent-macos-${{ steps.version.outputs.version }}.zip`
+          1. Download `idt-agent-macos.zip`
           2. Extract to any folder
           3. Run `./idt-agent`
           
@@ -284,12 +275,12 @@ jobs:
           ### Verify Build Provenance
           
           ```bash
-          gh attestation verify idt-agent-windows-${{ steps.version.outputs.version }}.zip -R ${{ github.repository }}
+          gh attestation verify idt-agent-windows.zip -R ${{ github.repository }}
           ```
           
           ---
           
-          Build: ${{ github.sha }}
+          Build: ${{ steps.version.outputs.build-info }} (${{ github.sha }})
           EOF
           
           echo "notes-file=release-notes.md" >> $GITHUB_OUTPUT
@@ -298,7 +289,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.version }}
-          name: Agent ${{ steps.version.outputs.version }}
+          name: IDT Agent (Latest)
           body_path: ${{ steps.release-notes.outputs.notes-file }}
           files: |
             ./release-artifacts/*.zip
