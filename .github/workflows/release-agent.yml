@@ -280,11 +280,21 @@ jobs:
           
           echo "notes-file=release-notes.md" >> $GITHUB_OUTPUT
       
+      - name: Delete existing latest release
+        continue-on-error: true
+        run: |
+          # Delete the release if it exists
+          gh release delete latest --yes || true
+          # Delete the tag
+          git push origin :refs/tags/latest || true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.version }}
-          name: IDT Agent (Latest)
+          name: Agent ${{ steps.version.outputs.build-info }}
           body_path: ${{ steps.release-notes.outputs.notes-file }}
           files: |
             ./release-artifacts/*.zip
