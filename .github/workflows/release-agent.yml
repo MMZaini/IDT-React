@@ -13,13 +13,22 @@ on:
     tags:
       - 'v*.*.*'
     paths:
+      # Agent source files
       - 'scripts/local-agent.js'
       - 'scripts/runner-core-selenium.js'
+      - 'scripts/runner-core-selenium-test.js'
+      - 'scripts/agent-launcher.js'
+      - 'scripts/cli-runner.js'
+      - 'scripts/selenium-runner.js'
+      # Build and packaging scripts
       - 'scripts/copy-chromedriver.js'
       - 'scripts/copy-runtime-deps.js'
       - 'scripts/generate-dist-readme.js'
+      - 'scripts/pkg-prune.js'
+      # Dependencies
       - 'package.json'
       - 'package-lock.json'
+      # Workflow itself
       - '.github/workflows/release-agent.yml'
 
 permissions:
@@ -285,6 +294,27 @@ jobs:
           
           echo "notes-file=release-notes.md" >> $GITHUB_OUTPUT
       
+      - name: Create stable-named copies for latest/download
+        run: |
+          set -e
+          cd release-artifacts
+          # pick the first matching versioned file and create stable copies
+          win_file=$(ls idt-agent-windows-*.zip 2>/dev/null | head -n 1 || true)
+          mac_file=$(ls idt-agent-macos-*.zip 2>/dev/null | head -n 1 || true)
+          if [ -n "$win_file" ]; then
+            cp "$win_file" idt-agent-windows.zip
+            echo "Created stable copy: idt-agent-windows.zip from $win_file"
+          else
+            echo "Warning: no windows artifact found in release-artifacts"
+          fi
+          if [ -n "$mac_file" ]; then
+            cp "$mac_file" idt-agent-macos.zip
+            echo "Created stable copy: idt-agent-macos.zip from $mac_file"
+          else
+            echo "Warning: no mac artifact found in release-artifacts"
+          fi
+          ls -lah
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:

@@ -5,23 +5,43 @@ on:
   push:
     branches: [ main ]
     paths:
+      # Agent source files
       - 'scripts/local-agent.js'
       - 'scripts/runner-core-selenium.js'
+      - 'scripts/runner-core-selenium-test.js'
+      - 'scripts/agent-launcher.js'
+      - 'scripts/cli-runner.js'
+      - 'scripts/selenium-runner.js'
+      # Build and packaging scripts
       - 'scripts/copy-chromedriver.js'
       - 'scripts/copy-runtime-deps.js'
       - 'scripts/generate-dist-readme.js'
+      - 'scripts/pkg-prune.js'
+      # Dependencies
       - 'package.json'
       - 'package-lock.json'
+      # Workflow itself
+      - '.github/workflows/build-agent.yml'
   pull_request:
     branches: [ main ]
     paths:
+      # Agent source files
       - 'scripts/local-agent.js'
       - 'scripts/runner-core-selenium.js'
+      - 'scripts/runner-core-selenium-test.js'
+      - 'scripts/agent-launcher.js'
+      - 'scripts/cli-runner.js'
+      - 'scripts/selenium-runner.js'
+      # Build and packaging scripts
       - 'scripts/copy-chromedriver.js'
       - 'scripts/copy-runtime-deps.js'
       - 'scripts/generate-dist-readme.js'
+      - 'scripts/pkg-prune.js'
+      # Dependencies
       - 'package.json'
       - 'package-lock.json'
+      # Workflow itself
+      - '.github/workflows/build-agent.yml'
 
 jobs:
   build-windows:
