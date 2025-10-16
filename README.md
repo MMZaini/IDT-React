@@ -87,15 +87,14 @@ Web UI changes (Next.js, React, CSS) don't trigger agent builds.
 
 ## Workflows
 
-**Build and Test Agent (CI)** - `build-agent.yml`
-- Runs on every push/PR to validate builds
-- Does not create releases
+## Workflow
 
 **Release Agent with Provenance** - `release-agent.yml`
-- Creates/updates the `latest` release with cryptographic attestations
-- Triggers on push to main (auto), git tags, or manual dispatch
-- Builds for Windows and macOS
-- Always uses stable filenames (`idt-agent-windows.zip`, `idt-agent-macos.zip`)
+- Automatically creates/updates the `latest` release when agent files change
+- Includes cryptographic build attestations (SLSA provenance)
+- Triggers on push to main, git tags, or manual dispatch
+- Builds for Windows and macOS with smoke tests
+- Uses stable filenames (`idt-agent-windows.zip`, `idt-agent-macos.zip`)
 
 ## Deployment
 
