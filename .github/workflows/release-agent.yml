@@ -1,0 +1,303 @@
+name: Release Agent with Provenance
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., v1.0.0)'
+        required: true
+        type: string
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    outputs:
+      artifact-name: ${{ steps.artifact-info.outputs.name }}
+      artifact-path: ${{ steps.artifact-info.outputs.path }}
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Build agent exe + copy runtime deps
+        run: npm run pkg:agent:win:with-chromedriver
+      
+      - name: Create distribution archive
+        id: archive
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}"
+          if ("${{ github.event.inputs.version }}" -ne "") {
+            $version = "${{ github.event.inputs.version }}"
+          }
+          $zipName = "idt-agent-windows-$version.zip"
+          Compress-Archive -Path dist\* -DestinationPath $zipName -Force
+          echo "zip-name=$zipName" >> $env:GITHUB_OUTPUT
+          echo "zip-path=$(Resolve-Path $zipName)" >> $env:GITHUB_OUTPUT
+      
+      - name: Set artifact info
+        id: artifact-info
+        shell: pwsh
+        run: |
+          echo "name=${{ steps.archive.outputs.zip-name }}" >> $env:GITHUB_OUTPUT
+          echo "path=${{ steps.archive.outputs.zip-path }}" >> $env:GITHUB_OUTPUT
+      
+      - name: Generate attestation
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: ${{ steps.archive.outputs.zip-path }}
+      
+      - name: Upload release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-release
+          path: ${{ steps.archive.outputs.zip-name }}
+          if-no-files-found: error
+      
+      - name: Portability smoke test
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dst = "$env:TEMP\idt-agent-portable-test"
+          if (Test-Path $dst) { Remove-Item -Recurse -Force $dst }
+          New-Item -ItemType Directory -Path $dst | Out-Null
+          Copy-Item -Recurse -Force .\dist\* $dst
+          
+          # Verify required files
+          if (!(Test-Path "$dst\idt-agent.exe")) { throw 'idt-agent.exe missing' }
+          if (!(Test-Path "$dst\runner-core-selenium.js")) { throw 'runner-core-selenium.js missing' }
+          if (!(Test-Path "$dst\chromedriver.exe")) { throw 'chromedriver.exe missing' }
+          if (!(Test-Path "$dst\node_modules\selenium-webdriver")) { throw 'selenium-webdriver missing' }
+          if (!(Test-Path "$dst\node_modules\tmp")) { throw 'tmp module missing' }
+          if (!(Test-Path "$dst\node_modules\jszip")) { throw 'jszip module missing' }
+          if (!(Test-Path "$dst\node_modules\setimmediate")) { throw 'setimmediate module missing' }
+          if (!(Test-Path "$dst\node_modules\ws")) { throw 'ws module missing' }
+          if (!(Test-Path "$dst\node_modules\@bazel\runfiles")) { throw '@bazel/runfiles module missing' }
+          
+          # Health check test
+          $env:IDT_AGENT_PORT = '4799'
+          $p = Start-Process -FilePath "$dst\idt-agent.exe" -PassThru
+          try {
+            Start-Sleep -Seconds 3
+            $res = Invoke-WebRequest -Uri "http://127.0.0.1:$($env:IDT_AGENT_PORT)/health" -UseBasicParsing -TimeoutSec 5
+            if ($res.StatusCode -ne 200) { throw "health returned $($res.StatusCode)" }
+            Write-Host "✓ Portability test passed"
+          } finally {
+            try { Stop-Process -Id $p.Id -Force } catch {}
+          }
+
+  build-macos:
+    runs-on: macos-latest
+    outputs:
+      artifact-name: ${{ steps.artifact-info.outputs.name }}
+      artifact-path: ${{ steps.artifact-info.outputs.path }}
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Build agent (mac) and copy runtime deps
+        run: |
+          npm run pkg:agent:mac
+          node scripts/copy-chromedriver.js || true
+          node scripts/copy-runtime-deps.js || true
+      
+      - name: Create distribution archive
+        id: archive
+        run: |
+          version="${{ github.ref_name }}"
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            version="${{ github.event.inputs.version }}"
+          fi
+          zip_name="idt-agent-macos-${version}.zip"
+          cd dist && zip -r "../${zip_name}" . && cd ..
+          echo "zip-name=${zip_name}" >> $GITHUB_OUTPUT
+          echo "zip-path=$(pwd)/${zip_name}" >> $GITHUB_OUTPUT
+      
+      - name: Set artifact info
+        id: artifact-info
+        run: |
+          echo "name=${{ steps.archive.outputs.zip-name }}" >> $GITHUB_OUTPUT
+          echo "path=${{ steps.archive.outputs.zip-path }}" >> $GITHUB_OUTPUT
+      
+      - name: Generate attestation
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: ${{ steps.archive.outputs.zip-path }}
+      
+      - name: Upload release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-release
+          path: ${{ steps.archive.outputs.zip-name }}
+          if-no-files-found: error
+      
+      - name: Portability smoke test
+        run: |
+          set -euo pipefail
+          dst="$(mktemp -d)/idt-agent-portable-test"
+          mkdir -p "$dst"
+          cp -R dist/* "$dst"/
+          
+          # Verify required files
+          test -f "$dst/idt-agent" || { echo 'idt-agent missing' ; exit 1; }
+          test -f "$dst/runner-core-selenium.js" || { echo 'runner-core-selenium.js missing'; exit 1; }
+          test -d "$dst/node_modules/selenium-webdriver" || { echo 'selenium-webdriver missing'; exit 1; }
+          test -d "$dst/node_modules/tmp" || { echo 'tmp missing'; exit 1; }
+          test -d "$dst/node_modules/jszip" || { echo 'jszip missing'; exit 1; }
+          test -d "$dst/node_modules/ws" || { echo 'ws missing'; exit 1; }
+          test -d "$dst/node_modules/@bazel/runfiles" || { echo '@bazel/runfiles missing'; exit 1; }
+          
+          # Health check test
+          export IDT_AGENT_PORT=4799
+          chmod +x "$dst/idt-agent" || true
+          AGENT_LOG="$dst/agent.log"
+          "$dst/idt-agent" > "$AGENT_LOG" 2>&1 &
+          pid=$!
+          
+          # Poll /health for up to 15 seconds
+          ok=1
+          for i in $(seq 1 15); do
+            if curl -sf "http://127.0.0.1:${IDT_AGENT_PORT}/health" >/dev/null 2>&1; then
+              ok=0
+              break
+            fi
+            sleep 1
+          done
+          
+          if [ "$ok" -ne 0 ]; then
+            echo 'Portability smoke test failed: /health not reachable. Agent log follows:'
+            sed -n '1,200p' "$AGENT_LOG" || true
+            kill "$pid" || true
+            exit 1
+          fi
+          
+          echo "✓ Portability test passed"
+          kill "$pid" || true
+
+  create-release:
+    needs: [build-windows, build-macos]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-release
+          path: ./release-artifacts
+      
+      - name: Download macOS artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-release
+          path: ./release-artifacts
+      
+      - name: Determine version
+        id: version
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "version=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Generate release notes
+        id: release-notes
+        run: |
+          cat > release-notes.md << 'EOF'
+          ## IDT Agent Release ${{ steps.version.outputs.version }}
+          
+          ### 📦 Downloads
+          
+          Choose the appropriate package for your operating system:
+          
+          - **Windows**: `idt-agent-windows-${{ steps.version.outputs.version }}.zip`
+          - **macOS**: `idt-agent-macos-${{ steps.version.outputs.version }}.zip`
+          
+          ### 🔒 Build Provenance
+          
+          This release includes SLSA build provenance attestations. You can verify the authenticity of these artifacts using the GitHub CLI:
+          
+          ```bash
+          # Verify Windows release
+          gh attestation verify idt-agent-windows-${{ steps.version.outputs.version }}.zip -R ${{ github.repository }}
+          
+          # Verify macOS release
+          gh attestation verify idt-agent-macos-${{ steps.version.outputs.version }}.zip -R ${{ github.repository }}
+          ```
+          
+          ### 📝 Installation
+          
+          1. Download the appropriate ZIP file for your OS
+          2. Extract the archive to a folder of your choice
+          3. Run the agent:
+             - **Windows**: Double-click `idt-agent.exe` or run in PowerShell/CMD
+             - **macOS**: Open Terminal, navigate to the folder, and run `./idt-agent`
+          4. The agent will start listening on `http://127.0.0.1:4599`
+          5. Open the web UI and start submitting orders
+          
+          ### 📋 What's Included
+          
+          Each archive contains:
+          - Agent executable (`idt-agent.exe` or `idt-agent`)
+          - ChromeDriver binary for browser automation
+          - Required Node.js modules (selenium-webdriver, etc.)
+          - Automation runner script
+          - README with troubleshooting tips
+          
+          ### ✅ Verification
+          
+          All builds are:
+          - Built in GitHub Actions with reproducible environments
+          - Tested with portability smoke tests
+          - Attested with cryptographic provenance signatures
+          - Traceable back to source commits
+          
+          ### 🛠️ Requirements
+          
+          - **Chrome browser** must be installed
+          - **Windows**: Windows 10 or later
+          - **macOS**: macOS 10.15 or later
+          
+          ---
+          
+          Built with ❤️ for automated DNA oligonucleotide ordering
+          EOF
+          
+          echo "notes-file=release-notes.md" >> $GITHUB_OUTPUT
+      
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.version }}
+          name: Release ${{ steps.version.outputs.version }}
+          body_path: ${{ steps.release-notes.outputs.notes-file }}
+          files: |
+            ./release-artifacts/*.zip
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

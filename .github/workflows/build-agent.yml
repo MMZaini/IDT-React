@@ -1,8 +1,18 @@
-name: Build Local Agent
+name: Build and Test Agent (CI)
 
 on:
   workflow_dispatch:
   push:
+    branches: [ main ]
+    paths:
+      - 'scripts/local-agent.js'
+      - 'scripts/runner-core-selenium.js'
+      - 'scripts/copy-chromedriver.js'
+      - 'scripts/copy-runtime-deps.js'
+      - 'scripts/generate-dist-readme.js'
+      - 'package.json'
+      - 'package-lock.json'
+  pull_request:
     branches: [ main ]
     paths:
       - 'scripts/local-agent.js'
@@ -23,7 +33,7 @@ jobs:
           node-version: '20'
           cache: 'npm'
       - name: Install deps
-        run: npm install
+        run: npm ci
       - name: Build agent exe + copy runtime deps
         run: npm run pkg:agent:win:with-chromedriver
       - name: Upload artifact (full dist)
@@ -69,7 +79,7 @@ jobs:
           node-version: '20'
           cache: 'npm'
       - name: Install deps
-        run: npm install
+        run: npm ci
       - name: Build agent (mac) and copy runtime deps
         run: |
           npm run pkg:agent:mac
