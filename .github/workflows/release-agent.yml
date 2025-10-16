@@ -225,13 +225,13 @@ jobs:
       - name: Determine version
         id: version
         run: |
-          # Use stable "latest" tag
-          echo "version=latest" >> $GITHUB_OUTPUT
-          
-          # Also capture build info for release notes
+          # Create unique versioned tag for this release
           version=$(node -p "require('./package.json').version")
           short_sha=$(git rev-parse --short HEAD)
-          echo "build-info=v${version}-${short_sha}" >> $GITHUB_OUTPUT
+          versioned_tag="v${version}-${short_sha}"
+          
+          echo "version=${versioned_tag}" >> $GITHUB_OUTPUT
+          echo "build-info=${versioned_tag}" >> $GITHUB_OUTPUT
       
       - name: Generate release notes
         id: release-notes
@@ -280,17 +280,7 @@ jobs:
           
           echo "notes-file=release-notes.md" >> $GITHUB_OUTPUT
       
-      - name: Delete existing latest release
-        continue-on-error: true
-        run: |
-          # Delete the release if it exists
-          gh release delete latest --yes || true
-          # Delete the tag
-          git push origin :refs/tags/latest || true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      
-      - name: Create GitHub Release
+      - name: Create versioned release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.version }}
@@ -302,5 +292,24 @@ jobs:
           prerelease: false
           make_latest: true
           generate_release_notes: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Update latest tag
+        run: |
+          # Force update the 'latest' tag to point to this commit
+          git tag -f latest
+          git push origin latest -f
+          
+          # Update the 'latest' release to use the same files
+          gh release delete latest --yes || true
+          gh release create latest \
+            --title "Agent (Latest)" \
+            --notes "This release always points to the most recent build. Download the versioned release for a permanent link.
+
+          **Current build:** ${{ steps.version.outputs.build-info }}
+
+          See [Agent ${{ steps.version.outputs.build-info }}](https://github.com/${{ github.repository }}/releases/tag/${{ steps.version.outputs.version }}) for the permanent versioned release." \
+            ./release-artifacts/*.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
