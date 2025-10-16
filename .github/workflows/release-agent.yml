@@ -243,52 +243,44 @@ jobs:
           cat > release-notes.md << 'EOF'
           ## IDT Local Agent
           
-          Desktop automation agent for bulk DNA oligonucleotide ordering from IDT. Runs on your computer to automate browser interaction with the IDT website.
+          Desktop automation agent for bulk DNA oligonucleotide ordering from IDT.
           
-          ### 📦 Download & Install
+          ### Download
           
-          1. **Download** the ZIP for your OS:
-             - `idt-agent-windows-${{ steps.version.outputs.version }}.zip` (Windows 10+)
-             - `idt-agent-macos-${{ steps.version.outputs.version }}.zip` (macOS 10.15+)
+          **Windows 10+:**
+          - `idt-agent-windows-${{ steps.version.outputs.version }}.zip`
           
-          2. **Extract** to any folder
+          **macOS 10.15+:**
+          - `idt-agent-macos-${{ steps.version.outputs.version }}.zip`
           
-          3. **Run** the agent:
-             - Windows: Double-click `idt-agent.exe`
-             - macOS: `./idt-agent` in Terminal
+          ### Install
           
-          4. **Use** the web UI to submit orders (agent runs on `http://127.0.0.1:4599`)
+          1. Extract the ZIP to any folder
+          2. Run `idt-agent.exe` (Windows) or `./idt-agent` (macOS)
+          3. Agent listens on `http://127.0.0.1:4599`
+          4. Use the web UI to submit orders
           
-          ### 🔒 Verify Download (Recommended)
+          ### Requirements
+          
+          - Chrome browser installed
+          - Windows 10+ or macOS 10.15+
+          
+          ### What It Does
+          
+          - Receives order submissions from web UI
+          - Launches Chrome with Selenium automation
+          - Fills IDT bulk order form with your sequences
+          - Adds items to cart for review and checkout
+          
+          ### Verify Build Provenance
           
           ```bash
           gh attestation verify idt-agent-windows-${{ steps.version.outputs.version }}.zip -R ${{ github.repository }}
           ```
           
-          All releases include cryptographic build provenance to ensure authenticity.
-          
-          ### ⚙️ How It Works
-          
-          - Listens for order submissions from the web UI
-          - Launches Chrome with Selenium automation
-          - Fills IDT bulk order form with your sequences
-          - Adds items to cart for you to review and checkout
-          
-          ### 📋 Requirements
-          
-          - Chrome browser installed
-          - Windows 10+ or macOS 10.15+
-          
-          ### 🛠️ Included Components
-          
-          - Self-contained executable (no installation needed)
-          - ChromeDriver for browser automation
-          - All required dependencies bundled
-          - Portable - runs from any folder
-          
           ---
           
-          **Note:** This is an automated build from commit ${{ github.sha }}
+          Build: ${{ github.sha }}
           EOF
           
           echo "notes-file=release-notes.md" >> $GITHUB_OUTPUT
