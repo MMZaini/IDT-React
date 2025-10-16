@@ -2,67 +2,105 @@
 const fs = require('fs');
 const path = require('path');
 
-const out = path.resolve(process.cwd(), 'dist', 'README.txt');
-const txt = `IDT Agent - Automated DNA Oligonucleotide Ordering
-====================================================
+// Detect OS from command line arg or platform
+const osArg = process.argv[2] || process.platform;
+const isWindows = osArg === 'win32' || osArg === 'windows' || osArg === 'win';
+const isMac = osArg === 'darwin' || osArg === 'macos' || osArg === 'mac';
 
-This folder contains the packaged idt-agent and supporting files.
+const os = isWindows ? 'Windows' : isMac ? 'macOS' : 'Unknown';
+const executable = isWindows ? 'idt-agent.exe' : './idt-agent';
+const chromedriver = isWindows ? 'chromedriver.exe' : 'chromedriver';
+
+const out = path.resolve(process.cwd(), 'dist', 'README.txt');
+
+// OS-specific instructions
+const installInstructions = isWindows 
+  ? `1. Extract the ZIP to any folder
+2. Run idt-agent.exe (double-click or from Command Prompt/PowerShell)
+3. Agent starts on http://127.0.0.1:4599`
+  : `1. Extract the ZIP to any folder
+2. Open Terminal and run: ./idt-agent
+3. Agent starts on http://127.0.0.1:4599`;
+
+const troubleshooting = isWindows
+  ? `- Windows security warning: Right-click chromedriver.exe → Properties → Check "Unblock"
+- Chrome not found: Ensure Chrome is installed in default location
+- Port in use: Set custom port with: set IDT_AGENT_PORT=4600 && idt-agent.exe
+- Firewall blocking: Allow idt-agent.exe through Windows Defender Firewall`
+  : `- macOS "unidentified developer": Right-click idt-agent → Open, then confirm
+- Permission denied: Run: chmod +x idt-agent
+- Chrome not found: Ensure Chrome is installed in /Applications
+- Port in use: Set custom port with: IDT_AGENT_PORT=4600 ./idt-agent`;
+
+const txt = `IDT Local Agent (${os})
+${'='.repeat(30 + os.length)}
+
+Desktop automation agent for bulk DNA oligonucleotide ordering from IDT.
+
+DOWNLOAD & INSTALL
+------------------
+${installInstructions}
+
+USAGE
+-----
+The agent listens on http://127.0.0.1:4599
+
+1. Keep the agent running
+2. Visit the web UI at https://idt-react.vercel.app/
+3. Create your order in the web UI
+4. Submit - the agent will automate Chrome to place your order on IDT
+
+REQUIREMENTS
+------------
+- Google Chrome browser installed
+- ${isWindows ? 'Windows 10+' : 'macOS 10.15+'}
+- Internet connection to IDT website
+
+WHAT IT DOES
+------------
+- Receives order submissions from web UI
+- Launches Chrome with Selenium automation
+- Fills IDT bulk order form with your sequences
+- Adds items to cart for review and checkout
 
 FILES INCLUDED
 --------------
-- idt-agent.exe / idt-agent : Packaged agent executable
-- chromedriver.exe / chromedriver : ChromeDriver binary for browser automation
-- node_modules/           : Runtime dependencies (selenium-webdriver, tmp, jszip, ws, etc.)
-- runner-core-selenium.js : Selenium automation runner script
+- ${isWindows ? 'idt-agent.exe' : 'idt-agent'} : Packaged agent executable
+- ${chromedriver} : ChromeDriver for browser automation
+- runner-core-selenium.js : Selenium automation logic
+- node_modules/ : Runtime dependencies (selenium-webdriver, tmp, jszip, ws, etc.)
 
-HOW TO RUN
-----------
-1. Ensure Google Chrome is installed on your system
-2. Run the agent:
-   
-   Windows:
-     Double-click idt-agent.exe
-     OR run in PowerShell/CMD: .\\idt-agent.exe
-   
-   macOS/Linux:
-     Open Terminal and run: ./idt-agent
-   
-3. The agent will start and show: "listening on http://127.0.0.1:4599"
-4. Open the IDT web UI in your browser and start submitting orders
+TESTING
+-------
+Check if agent is running:
 
-TESTING THE AGENT
------------------
-You can test if the agent is running:
-  curl http://127.0.0.1:4599/health
+${isWindows ? '  curl http://127.0.0.1:4599/health' : '  curl http://127.0.0.1:4599/health'}
 
 Expected response: {"ok":true,"version":"...","platform":"..."}
 
 TROUBLESHOOTING
 ---------------
-- ChromeDriver version mismatch: Ensure ChromeDriver matches your Chrome version
-- Module not found errors: Keep all files in this folder together (don't move individual files)
-- Windows security warning: Right-click chromedriver.exe → Properties → Check "Unblock"
-- Port already in use: Set custom port with: IDT_AGENT_PORT=4600 ./idt-agent.exe
-- macOS "unidentified developer": Right-click → Open, then confirm
+${troubleshooting}
 
-BUILD PROVENANCE
-----------------
-Official releases include cryptographic attestations verifying the build integrity.
-Verify downloaded releases using GitHub CLI:
-  gh attestation verify <zip-file> -R MMZaini/idt-react
+VERIFY BUILD PROVENANCE
+-----------------------
+All official releases include cryptographic attestations (SLSA provenance).
+
+Verify your download:
+  gh attestation verify idt-agent-${isWindows ? 'windows' : 'macos'}.zip -R MMZaini/idt-react
+
+This proves:
+- File was built by official GitHub Actions workflow
+- File hasn't been tampered with since build
+- Build is traceable to exact source code commit
 
 Learn more: https://github.com/MMZaini/idt-react
 
-REQUIREMENTS
-------------
-- Google Chrome browser
-- Windows 10+ or macOS 10.15+
-- Network access to eu.idtdna.com
-
-This README was generated automatically by the build pipeline.
-For issues or questions: https://github.com/MMZaini/idt-react/issues
+---
+Build: Automatically generated by release pipeline
+Issues: https://github.com/MMZaini/idt-react/issues
 `;
 
 fs.mkdirSync(path.dirname(out), { recursive: true });
 fs.writeFileSync(out, txt, 'utf8');
-console.log('[generate-dist-readme] written', out);
+console.log(`[generate-dist-readme] Written ${os}-specific README to ${out}`);

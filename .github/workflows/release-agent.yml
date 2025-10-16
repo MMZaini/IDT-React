@@ -133,6 +133,7 @@ jobs:
           npm run pkg:agent:mac
           node scripts/copy-chromedriver.js || true
           node scripts/copy-runtime-deps.js || true
+          node scripts/generate-dist-readme.js macos
       
       - name: Create distribution archive
         id: archive
@@ -284,13 +285,13 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.version }}
-          name: Agent ${{ steps.version.outputs.build-info }}
+          name: IDT Agent ${{ steps.version.outputs.build-info }}
           body_path: ${{ steps.release-notes.outputs.notes-file }}
           files: |
             ./release-artifacts/*.zip
           draft: false
           prerelease: false
-          make_latest: true
+          make_latest: false
           generate_release_notes: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -304,7 +305,8 @@ jobs:
           # Update the 'latest' release to use the same files
           gh release delete latest --yes || true
           gh release create latest \
-            --title "Agent (Latest)" \
+            --title "IDT Agent (Latest)" \
+            --latest \
             --notes "This release always points to the most recent build. Download the versioned release for a permanent link.
 
           **Current build:** ${{ steps.version.outputs.build-info }}

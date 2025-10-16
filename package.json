@@ -27,8 +27,9 @@
     "pkg:win": "pkg --compress Brotli --targets node16-win-x64 --output dist/idt-runner.exe scripts/cli-runner.js",
   "pkg:agent:win": "pkg --compress Brotli --targets node16-win-x64 --output dist/idt-agent.exe scripts/local-agent.js",
   "postpkg:agent:win": "node scripts/copy-chromedriver.js",
-  "postpkg:agent:final": "node scripts/copy-runtime-deps.js && node scripts/generate-dist-readme.js",
-  "pkg:agent:win:with-chromedriver": "npm run pkg:agent:win && npm run postpkg:agent:win && npm run postpkg:agent:final",
+  "postpkg:agent:final:win": "node scripts/copy-runtime-deps.js && node scripts/generate-dist-readme.js windows",
+  "postpkg:agent:final:mac": "node scripts/copy-runtime-deps.js && node scripts/generate-dist-readme.js macos",
+  "pkg:agent:win:with-chromedriver": "npm run pkg:agent:win && npm run postpkg:agent:win && npm run postpkg:agent:final:win",
     "pkg:agent:mac": "pkg --compress Brotli --targets node16-mac-x64 --output dist/idt-agent scripts/local-agent.js",
     "pkg:mac": "pkg --compress Brotli --targets node16-mac-x64 --output dist/idt-runner scripts/cli-runner.js"
   },
