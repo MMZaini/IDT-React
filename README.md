@@ -1,54 +1,112 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# IDT React
 
-IDT React — Automated, Improved DNA Oligonucleotide and Probes Ordering
+Automated, improved bulk ordering system for DNA oligonucleotides and Probes from Integrated DNA Technologies (IDT). Web UI for order creation + local desktop agent for browser automation.
 
-A modern web application for bulk ordering DNA oligonucleotides and probes from Integrated DNA Technologies (IDT), with browser automation via a local agent.
+## Quick Start
 
-### 🚀 Quick Start
+### For Users
 
-**For Users:**
-1. Download the latest agent for your OS from [Releases](https://github.com/MMZaini/idt-react/releases)
-2. Verify your download (recommended): See [Verification Guide](.github/VERIFY_DOWNLOAD.md)
-3. Extract and run the agent
-4. Visit the web UI @ https://idt-react.vercel.app/ and start ordering!
+1. **Download** the latest agent from [Releases](https://github.com/MMZaini/idt-react/releases)
+2. **Extract** the ZIP to any folder
+3. **Run** `idt-agent.exe` (Windows) or `./idt-agent` (macOS)
+4. **Visit** the web UI and start ordering
 
-**For Developers:**
-
-First, install dependencies and run the development server:
+### For Developers
 
 ```bash
-npm ci
-npm run dev
+npm install
+npm run dev           # Start web UI at http://localhost:3000
+npm run agent         # Run agent locally for testing
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
-- **Automation** (`scripts/runner-core-selenium.js`) - Selenium-based IDT website automation
+## Project Structure
+
+- `src/app/` - Next.js web UI for order creation
+- `scripts/local-agent.js` - HTTP server (port 4599) that runs Selenium automation
+- `scripts/runner-core-selenium.js` - Browser automation logic for IDT website
+
+## Build Agent
+
+```bash
+# Windows
+npm run pkg:agent:win:with-chromedriver
+
+# macOS
+npm run pkg:agent:mac
+node scripts/copy-chromedriver.js
+node scripts/copy-runtime-deps.js
+```
+
+## Security - Verify Downloads
+
+All releases include SLSA build provenance. Verify authenticity:
+
+```bash
+# Install GitHub CLI
+brew install gh              # macOS
+winget install GitHub.cli    # Windows
+
+# Verify download
 gh attestation verify idt-agent-windows-v1.0.0.zip -R MMZaini/idt-react
 ```
 
-Where to look next
-- `src/app/` — Next.js app and UI
-- `scripts/` — Local agent + packaging scripts (pkg, chromedriver copy, etc.)
-- `.github/workflows/` — CI and release workflows
-- `.github/VERIFY_DOWNLOAD.md` — Short user guide for verification (kept as reference)
+**Success output:**
+```
+✓ Verification succeeded!
 
-If you need the long step-by-step release process or implementation notes they were consolidated into this README — the original `.github/*.md` files are removed to avoid duplication.
-
-# Run agent locally for testing
-npm run agent
+sha256:abc123... was attested by:
+REPO                PREDICATE_TYPE                  WORKFLOW
+MMZaini/idt-react  https://slsa.dev/provenance/v1  .github/workflows/release-agent.yml@refs/tags/v1.0.0
 ```
 
-## Learn More
+**What this proves:**
+- File was built by official GitHub Actions workflow
+- File hasn't been tampered with since build
+- Build is traceable to exact source code commit
 
-To learn more about Next.js, take a look at the following resources:
+## Releases
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### Automatic Releases
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Push to `main` automatically creates a release when agent files change:
 
-## Deploy on Vercel
+```bash
+git push origin main
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Creates: `v0.1.0-{commit-sha}` (latest release, ready for users)
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+### Stable Releases
+
+Create a git tag for stable versions:
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+### What Triggers Builds
+
+Workflows only run when these files change:
+- `scripts/*.js` - Agent source and build scripts
+- `package.json`, `package-lock.json` - Dependencies
+- `.github/workflows/*.yml` - Workflow files
+
+Web UI changes (Next.js, React, CSS) don't trigger agent builds.
+
+## Workflows
+
+**Build and Test Agent (CI)** - `build-agent.yml`
+- Runs on every push/PR to validate builds
+- Does not create releases
+
+**Release Agent with Provenance** - `release-agent.yml`
+- Creates releases with cryptographic attestations
+- Triggers on push to main (auto), git tags, or manual dispatch
+- Builds for Windows and macOS
+- Includes stable-named files for `/latest/download` URLs
+
+## Deployment
+
+- **Web UI:** Deployed on Vercel
+- **Agent:** Distributed as standalone executables via GitHub Releases
