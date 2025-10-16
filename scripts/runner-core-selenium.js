@@ -1,5 +1,6 @@
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 
 // Resolve modules explicitly from sidecar node_modules next to the exe (portable)
 function getBaseModulePaths() {
@@ -25,6 +26,21 @@ function requireFromBases(spec) {
 
 const { Builder, By, until } = requireFromBases('selenium-webdriver');
 const chrome = requireFromBases('selenium-webdriver/chrome');
+
+// Get persistent Chrome profile directory
+function getPersistentProfileDir() {
+  const homeDir = os.homedir();
+  const profileDir = path.join(homeDir, '.idt-agent', 'chrome-profile');
+  
+  // Create directory if it doesn't exist
+  try {
+    fs.mkdirSync(profileDir, { recursive: true });
+  } catch (err) {
+    console.warn('Could not create profile directory:', err.message);
+  }
+  
+  return profileDir;
+}
 
 // Discover possible runtime bases so the agent works when moved anywhere.
 function getRuntimeBases() {
@@ -111,8 +127,15 @@ async function acceptCookiesIfPresent(driver, log) {
 async function runSelenium({ csv, test }, log = createLogger()) {
   log.log(`CSV length: ${String(csv ? csv.length : 0)}`);
 
+  // Get persistent profile directory
+  const profileDir = getPersistentProfileDir();
+  log.log(`Using Chrome profile: ${profileDir}`);
+
   let options = new chrome.Options();
   options = options.addArguments('--start-maximized');
+  options = options.addArguments(`--user-data-dir=${profileDir}`);
+  // Use a named profile to avoid "Default" profile conflicts
+  options = options.addArguments('--profile-directory=IDT-Agent');
 
   let driver;
   try {
