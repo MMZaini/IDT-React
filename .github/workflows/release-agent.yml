@@ -245,20 +245,19 @@ jobs:
           
           Desktop automation agent for bulk DNA oligonucleotide ordering from IDT.
           
-          ### Download
+          ### Download & Install
           
           **Windows 10+:**
-          - `idt-agent-windows-${{ steps.version.outputs.version }}.zip`
+          1. Download `idt-agent-windows-${{ steps.version.outputs.version }}.zip`
+          2. Extract to any folder
+          3. Run `idt-agent.exe`
           
           **macOS 10.15+:**
-          - `idt-agent-macos-${{ steps.version.outputs.version }}.zip`
+          1. Download `idt-agent-macos-${{ steps.version.outputs.version }}.zip`
+          2. Extract to any folder
+          3. Run `./idt-agent`
           
-          ### Install
-          
-          1. Extract the ZIP to any folder
-          2. Run `idt-agent.exe` (Windows) or `./idt-agent` (macOS)
-          3. Agent listens on `http://127.0.0.1:4599`
-          4. Use the web UI to submit orders
+          Agent listens on `http://127.0.0.1:4599` - use the web UI to submit orders.
           
           ### Requirements
           
