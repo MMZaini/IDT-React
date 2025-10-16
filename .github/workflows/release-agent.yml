@@ -1,12 +1,7 @@
 name: Release Agent with Provenance
 
 on:
-  workflow_dispatch:
-    inputs:
-      version:
-        description: 'Release version (e.g., v1.0.0)'
-        required: true
-        type: string
+  workflow_dispatch:  # Manual trigger (no inputs needed)
   push:
     branches:
       - main
