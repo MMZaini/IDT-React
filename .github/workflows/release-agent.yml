@@ -20,6 +20,7 @@ on:
       - 'scripts/generate-dist-readme.js'
       - 'package.json'
       - 'package-lock.json'
+      - '.github/workflows/release-agent.yml'
 
 permissions:
   contents: write
