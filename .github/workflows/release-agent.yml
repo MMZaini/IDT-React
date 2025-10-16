@@ -294,7 +294,8 @@ jobs:
           files: |
             ./release-artifacts/*.zip
           draft: false
-          prerelease: ${{ !startsWith(github.ref, 'refs/tags/') }}
+          prerelease: false
+          make_latest: true
           generate_release_notes: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
