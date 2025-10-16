@@ -258,7 +258,7 @@ jobs:
           2. Extract to any folder
           3. Run `./idt-agent`
           
-          Agent listens on `http://127.0.0.1:4599` - use the web UI to submit orders.
+          Agent listens on `http://127.0.0.1:4599` - use the web UI @ https://idt-react.vercel.app/ to submit orders.
           
           ### Requirements
           

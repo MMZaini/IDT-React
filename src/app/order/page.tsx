@@ -61,10 +61,9 @@ export default function OrderPage() {
   const [agentOnline, setAgentOnline] = React.useState<null | boolean>(null);
   const [agentVersion, setAgentVersion] = React.useState<string>('');
   const [agentPlatform, setAgentPlatform] = React.useState<string>('');
-  // Always prefer env override, otherwise fall back to the canonical release asset URL for Windows
-  const downloadWin = process.env.NEXT_PUBLIC_AGENT_WIN_URL || 'https://github.com/MMZaini/idt-react/releases/download/release/idt-agent-windows.zip';
-  // macOS downloads are not provided via the UI — show a disabled button instead
-  const downloadMac = process.env.NEXT_PUBLIC_AGENT_MAC_URL || '';
+  // Download URLs - fetch latest release for each platform
+  const downloadWin = process.env.NEXT_PUBLIC_AGENT_WIN_URL || 'https://github.com/MMZaini/idt-react/releases/latest/download/idt-agent-windows.zip';
+  const downloadMac = process.env.NEXT_PUBLIC_AGENT_MAC_URL || 'https://github.com/MMZaini/idt-react/releases/latest/download/idt-agent-macos.zip';
   // Debug console removed
 
   React.useEffect(() => {
@@ -491,7 +490,7 @@ export default function OrderPage() {
               1) Download and run the agent binary (Windows/mac). Or run it from source via <code>npm run agent</code>.
             </p>
             <div className="flex flex-wrap gap-2">
-              {/* Windows: explicit release asset link and downloadable */}
+              {/* Windows download */}
               {downloadWin ? (
                 <Button asChild size="sm" className="h-8">
                   <a href={downloadWin} target="_blank" rel="noopener noreferrer" download>
@@ -499,10 +498,14 @@ export default function OrderPage() {
                   </a>
                 </Button>
               ) : null}
-              {/* macOS: show a disabled, non-clickable button with grayed-out appearance */}
-              <Button size="sm" variant="outline" className="h-8 opacity-50 cursor-not-allowed" disabled>
-                Download for macOS
-              </Button>
+              {/* macOS download */}
+              {downloadMac ? (
+                <Button asChild size="sm" className="h-8">
+                  <a href={downloadMac} target="_blank" rel="noopener noreferrer" download>
+                    Download for macOS
+                  </a>
+                </Button>
+              ) : null}
             </div>
             {agentPlatform ? <p className="text-xs text-muted-foreground">Detected platform: {agentPlatform}</p> : null}
             <p>2) Keep this page open and click Submit again.</p>
