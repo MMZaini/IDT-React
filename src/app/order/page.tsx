@@ -61,10 +61,9 @@ export default function OrderPage() {
   const [agentOnline, setAgentOnline] = React.useState<null | boolean>(null);
   const [agentVersion, setAgentVersion] = React.useState<string>('');
   const [agentPlatform, setAgentPlatform] = React.useState<string>('');
-  // Download URLs - fetch latest release for each platform
-  const downloadWin = process.env.NEXT_PUBLIC_AGENT_WIN_URL || 'https://github.com/MMZaini/idt-react/releases/latest/download/idt-agent-windows.zip';
-  const downloadMac = process.env.NEXT_PUBLIC_AGENT_MAC_URL || 'https://github.com/MMZaini/idt-react/releases/latest/download/idt-agent-macos.zip';
-  // Debug console removed
+  // Download URLs - always use latest release
+  const downloadWin = 'https://github.com/MMZaini/idt-react/releases/latest/download/idt-agent-windows.zip';
+  const downloadMac = 'https://github.com/MMZaini/idt-react/releases/latest/download/idt-agent-macos.zip';
 
   React.useEffect(() => {
     let cancelled = false;
