@@ -10,6 +10,8 @@ on:
   push:
     branches:
       - main
+    tags:
+      - 'v*.*.*'
     paths:
       - 'scripts/local-agent.js'
       - 'scripts/runner-core-selenium.js'
@@ -18,9 +20,6 @@ on:
       - 'scripts/generate-dist-readme.js'
       - 'package.json'
       - 'package-lock.json'
-  push:
-    tags:
-      - 'v*.*.*'
 
 permissions:
   contents: write
