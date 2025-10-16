@@ -8,6 +8,17 @@ on:
         required: true
         type: string
   push:
+    branches:
+      - main
+    paths:
+      - 'scripts/local-agent.js'
+      - 'scripts/runner-core-selenium.js'
+      - 'scripts/copy-chromedriver.js'
+      - 'scripts/copy-runtime-deps.js'
+      - 'scripts/generate-dist-readme.js'
+      - 'package.json'
+      - 'package-lock.json'
+  push:
     tags:
       - 'v*.*.*'
 
@@ -198,7 +209,6 @@ jobs:
   create-release:
     needs: [build-windows, build-macos]
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v4
       
@@ -219,71 +229,67 @@ jobs:
         run: |
           if [ -n "${{ github.event.inputs.version }}" ]; then
             echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
-          else
+          elif [[ "${{ github.ref }}" == refs/tags/* ]]; then
             echo "version=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          else
+            # Auto-version from package.json with commit SHA
+            version=$(node -p "require('./package.json').version")
+            short_sha=$(git rev-parse --short HEAD)
+            echo "version=v${version}-${short_sha}" >> $GITHUB_OUTPUT
           fi
       
       - name: Generate release notes
         id: release-notes
         run: |
           cat > release-notes.md << 'EOF'
-          ## IDT Agent Release ${{ steps.version.outputs.version }}
+          ## IDT Local Agent
           
-          ### 📦 Downloads
+          Desktop automation agent for bulk DNA oligonucleotide ordering from IDT. Runs on your computer to automate browser interaction with the IDT website.
           
-          Choose the appropriate package for your operating system:
+          ### 📦 Download & Install
           
-          - **Windows**: `idt-agent-windows-${{ steps.version.outputs.version }}.zip`
-          - **macOS**: `idt-agent-macos-${{ steps.version.outputs.version }}.zip`
+          1. **Download** the ZIP for your OS:
+             - `idt-agent-windows-${{ steps.version.outputs.version }}.zip` (Windows 10+)
+             - `idt-agent-macos-${{ steps.version.outputs.version }}.zip` (macOS 10.15+)
           
-          ### 🔒 Build Provenance
+          2. **Extract** to any folder
           
-          This release includes SLSA build provenance attestations. You can verify the authenticity of these artifacts using the GitHub CLI:
+          3. **Run** the agent:
+             - Windows: Double-click `idt-agent.exe`
+             - macOS: `./idt-agent` in Terminal
+          
+          4. **Use** the web UI to submit orders (agent runs on `http://127.0.0.1:4599`)
+          
+          ### 🔒 Verify Download (Recommended)
           
           ```bash
-          # Verify Windows release
           gh attestation verify idt-agent-windows-${{ steps.version.outputs.version }}.zip -R ${{ github.repository }}
-          
-          # Verify macOS release
-          gh attestation verify idt-agent-macos-${{ steps.version.outputs.version }}.zip -R ${{ github.repository }}
           ```
           
-          ### 📝 Installation
+          All releases include cryptographic build provenance to ensure authenticity.
           
-          1. Download the appropriate ZIP file for your OS
-          2. Extract the archive to a folder of your choice
-          3. Run the agent:
-             - **Windows**: Double-click `idt-agent.exe` or run in PowerShell/CMD
-             - **macOS**: Open Terminal, navigate to the folder, and run `./idt-agent`
-          4. The agent will start listening on `http://127.0.0.1:4599`
-          5. Open the web UI and start submitting orders
+          ### ⚙️ How It Works
           
-          ### 📋 What's Included
+          - Listens for order submissions from the web UI
+          - Launches Chrome with Selenium automation
+          - Fills IDT bulk order form with your sequences
+          - Adds items to cart for you to review and checkout
           
-          Each archive contains:
-          - Agent executable (`idt-agent.exe` or `idt-agent`)
-          - ChromeDriver binary for browser automation
-          - Required Node.js modules (selenium-webdriver, etc.)
-          - Automation runner script
-          - README with troubleshooting tips
+          ### 📋 Requirements
           
-          ### ✅ Verification
+          - Chrome browser installed
+          - Windows 10+ or macOS 10.15+
           
-          All builds are:
-          - Built in GitHub Actions with reproducible environments
-          - Tested with portability smoke tests
-          - Attested with cryptographic provenance signatures
-          - Traceable back to source commits
+          ### 🛠️ Included Components
           
-          ### 🛠️ Requirements
-          
-          - **Chrome browser** must be installed
-          - **Windows**: Windows 10 or later
-          - **macOS**: macOS 10.15 or later
+          - Self-contained executable (no installation needed)
+          - ChromeDriver for browser automation
+          - All required dependencies bundled
+          - Portable - runs from any folder
           
           ---
           
-          Built with ❤️ for automated DNA oligonucleotide ordering
+          **Note:** This is an automated build from commit ${{ github.sha }}
           EOF
           
           echo "notes-file=release-notes.md" >> $GITHUB_OUTPUT
@@ -292,12 +298,12 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.version }}
-          name: Release ${{ steps.version.outputs.version }}
+          name: Agent ${{ steps.version.outputs.version }}
           body_path: ${{ steps.release-notes.outputs.notes-file }}
           files: |
             ./release-artifacts/*.zip
           draft: false
-          prerelease: false
-          generate_release_notes: true
+          prerelease: ${{ !startsWith(github.ref, 'refs/tags/') }}
+          generate_release_notes: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
