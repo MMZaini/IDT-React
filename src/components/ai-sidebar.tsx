@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Switch } from "@/components/ui/switch";
-import { Settings, Sparkles, ChevronRight, ChevronLeft, Plus, X, Upload, RotateCcw, Info, Trash2, Download, FileUp, HelpCircle, AlertCircle } from "lucide-react";
+import { Settings, Sparkles, ChevronRight, ChevronLeft, Plus, X, Upload, RotateCcw, Info, Trash2, Download, FileUp, HelpCircle, AlertCircle, Github } from "lucide-react";
 import { toast } from "sonner";
 
 interface AiSidebarProps {
@@ -1198,10 +1198,10 @@ Provide verified sequences from scientific databases in the JSON format specifie
             {/* Footer Disclaimer */}
             <div className="pt-4 mt-4 border-t border-muted">
               <div className="text-center space-y-2">
-                <p className="text-[10px] text-muted-foreground">
+                <p className="text-xs text-muted-foreground">
                   ⚠️ AI-generated sequences should be verified before use
                 </p>
-                <p className="text-[10px] text-muted-foreground">
+                <p className="text-xs text-muted-foreground">
                   Please report bugs to{' '}
                   <a 
                     href="mailto:zainimahdi@outlook.com" 
@@ -1210,6 +1210,18 @@ Provide verified sequences from scientific databases in the JSON format specifie
                     zainimahdi@outlook.com
                   </a>
                 </p>
+                <div className="flex justify-center pt-1">
+                  <a
+                    href="https://github.com/MMZaini/IDT-React"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                    title="View on GitHub"
+                  >
+                    <Github className="size-4" />
+                    <span>GitHub</span>
+                  </a>
+                </div>
               </div>
             </div>
           </div>
