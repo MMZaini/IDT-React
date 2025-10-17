@@ -6,10 +6,20 @@ Automated, improved bulk ordering system for DNA oligonucleotides and Probes fro
 
 ### For Users
 
-1. **Download** the latest agent from [Releases](https://github.com/MMZaini/idt-react/releases)
-2. **Extract** the ZIP to any folder
-3. **Run** `idt-agent.exe` (Windows) or `./idt-agent` (macOS)
-4. **Visit** the web UI and start ordering
+**Download the latest agent:**
+
+<div align="center">
+
+[![Download for Windows](https://img.shields.io/badge/Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/MMZaini/idt-react/releases/latest/download/idt-agent-windows.zip)
+[![Download for macOS](https://img.shields.io/badge/macOS-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/MMZaini/idt-react/releases/latest/download/idt-agent-macos.zip)
+
+</div>
+
+**Then:**
+
+1. **Extract** the ZIP to any folder
+2. **Run** `idt-agent.exe` (Windows) or `./idt-agent` (macOS)
+3. **Visit** the web UI and start ordering
 
 ### For Developers
 

@@ -171,6 +171,7 @@ if (!runSeleniumCore) {
     }
     const { Builder, By, until } = requireFromBases('selenium-webdriver');
     const chrome = requireFromBases('selenium-webdriver/chrome');
+  const { spawn } = require('child_process');
 
     function getRuntimeBases() {
       const bases = new Set();
@@ -212,6 +213,26 @@ if (!runSeleniumCore) {
         log: (...args) => { const s = args.map(a => String(a)).join(' '); lines.push(s); },
         output: () => lines.join('\n')
       };
+    }
+
+    function tryFocusChrome(log, titleHint) {
+      try {
+        const plat = process.platform;
+        if (plat === 'win32') {
+          const ps = `$sh = New-Object -ComObject WScript.Shell; 1..5 | ForEach-Object { Start-Sleep -Milliseconds 200; $null = $sh.AppActivate('${titleHint.replace(/'/g, "''")}') }`;
+          spawn('powershell.exe', ['-NoProfile', '-WindowStyle', 'Hidden', '-Command', ps], { detached: true, stdio: 'ignore' }).unref();
+        } else if (plat === 'darwin') {
+          spawn('osascript', ['-e', 'tell application "Google Chrome" to activate'], { detached: true, stdio: 'ignore' }).unref();
+        } else {
+          const wmctrl = spawn('wmctrl', ['-a', titleHint], { detached: true, stdio: 'ignore' });
+          wmctrl.on('error', () => {
+            const xdotool = spawn('xdotool', ['search', '--name', titleHint, 'windowactivate'], { detached: true, stdio: 'ignore' });
+            xdotool.unref();
+          });
+          wmctrl.unref();
+        }
+        log && log.log('Focus attempt issued');
+      } catch {}
     }
 
     async function robustClick(driver, el, log) {
@@ -258,12 +279,15 @@ if (!runSeleniumCore) {
         if (service) builder.setChromeService(service);
         driver = await builder.setChromeOptions(options).build();
         log.log('Chrome ready');
+        tryFocusChrome(log, 'Google Chrome');
       } catch (err) {
         log.log('Failed to create driver', err && err.message);
         return { ok: false, output: log.output() };
       }
       try {
-        await driver.get('https://eu.idtdna.com/site/order/oligoentry');
+  await driver.get('https://eu.idtdna.com/site/order/oligoentry');
+  try { await driver.executeScript('document.title = "IDT Agent — Automation | " + (document.title || "")'); } catch {}
+  tryFocusChrome(log, 'IDT Agent — Automation');
         await acceptCookiesIfPresent(driver, log);
         if (test) {
           await driver.sleep(3000);

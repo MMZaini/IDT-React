@@ -9,11 +9,14 @@ import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Trash2 as TrashIcon } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "sonner";
 import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose } from "@/components/ui/dialog";
+import Switch from "@/components/ui/switch";
 // submission is intentionally a no-op for UI-only demo; no backend or clipboard side-effects
 import { kindOptions, scaleOptions, purificationOptions, fivePrimeOptions, threePrimeOptions, dyeOptions, quencherOptions, scaleRanges } from "@/lib/params";
 import { LineItem, OrderPayloadSchema } from "@/lib/schema";
@@ -45,6 +48,7 @@ export default function OrderPage() {
   ],
     },
     mode: "onChange",
+    shouldFocusError: false,
   });
 
   const { control, handleSubmit, watch, setValue } = form;
@@ -61,6 +65,7 @@ export default function OrderPage() {
   const [agentOnline, setAgentOnline] = React.useState<null | boolean>(null);
   const [agentVersion, setAgentVersion] = React.useState<string>('');
   const [agentPlatform, setAgentPlatform] = React.useState<string>('');
+  const [allowForce, setAllowForce] = React.useState<boolean>(false);
   // Download URLs - always use latest release
   const downloadWin = 'https://github.com/MMZaini/idt-react/releases/latest/download/idt-agent-windows.zip';
   const downloadMac = 'https://github.com/MMZaini/idt-react/releases/latest/download/idt-agent-macos.zip';
@@ -171,7 +176,8 @@ export default function OrderPage() {
     const lines: string[] = [];
     (items || []).forEach((it) => {
       const name = (it?.name || '').trim();
-      const seq = (it?.sequence || '').trim().toUpperCase();
+      // Remove all spaces from sequence, then trim and uppercase
+      const seq = (it?.sequence || '').replace(/\s+/g, '').trim().toUpperCase();
       if (!name || !seq) return;
       const scale = it?.params?.scale || '25nm';
       const purification = it?.params?.purification || 'STD';
@@ -237,10 +243,32 @@ export default function OrderPage() {
   // reusable row validator
   function validateRow(it: any) {
     const name = (it?.name || "").trim();
-    const seq = (it?.sequence || "").trim();
+    // Remove spaces when validating length
+    const seq = (it?.sequence || "").replace(/\s+/g, '').trim().toUpperCase();
     const scale = it?.params?.scale || "25nm";
+    const kind = it?.kind || "oligo";
     const range = scaleRanges[scale];
+    
     if (!name || !seq) return { valid: false, reason: "name_or_sequence_missing" };
+    
+    // Define allowed characters for each type
+    const allowedOligoChars = /^[ACGTRYSWKMBDHVN]+$/;
+    const allowedProbeChars = /^[ACGTRYSWKMBDHVN]+$/; // Same for now
+    
+    // Check for invalid characters based on type
+    const allowedPattern = kind === "probe" ? allowedProbeChars : allowedOligoChars;
+    if (!allowedPattern.test(seq)) {
+      const allowedChars = kind === "probe" 
+        ? "A, C, G, T, R, Y, S, W, K, M, B, D, H, V, N"
+        : "A, C, G, T, R, Y, S, W, K, M, B, D, H, V, N";
+      return { 
+        valid: false, 
+        reason: "invalid_characters",
+        kind: kind,
+        allowedChars: allowedChars
+      };
+    }
+    
     if (range && (seq.length < range.min || seq.length > range.max)) {
       return { valid: false, reason: "length_out_of_range", min: range.min, max: range.max };
     }
@@ -281,8 +309,8 @@ export default function OrderPage() {
     }
   }
 
-  const onSubmit: SubmitHandler<FormValues> = async (values) => {
-  if (submitting) return; // anti-spam guard
+  async function performSubmission(values: FormValues, force: boolean) {
+    if (submitting) return; // anti-spam guard
     // Validate all lines before proceeding
     const invalidLines: number[] = [];
     function csvField(v: string) {
@@ -292,7 +320,8 @@ export default function OrderPage() {
     const prepared: { csv: string; code: string }[] = [];
     values.items.forEach(it => {
       const name = (it.name || '').trim();
-      const seq = (it.sequence || '').trim().toUpperCase();
+      // Remove all spaces from sequence, then trim and uppercase
+      const seq = (it.sequence || '').replace(/\s+/g, '').trim().toUpperCase();
       if (!name || !seq) return;
       const scale = it.params?.scale || '25nm';
       const purification = it.params?.purification || 'STD';
@@ -309,10 +338,19 @@ export default function OrderPage() {
       if (!res.valid) invalidLines.push(i + 1);
     });
 
-    if (invalidLines.length > 0) {
+    if (invalidLines.length > 0 && !force) {
       // show inline and toast notification
-      toast.error(`Please amend line(s): ${invalidLines.join(", ")}`);
+      const hasInvalidChars = values.items.some(it => {
+        const res = validateRow(it);
+        return res.reason === 'invalid_characters';
+      });
+      const errorMsg = hasInvalidChars 
+        ? `Invalid characters in sequence(s) on line(s): ${invalidLines.join(", ")}. Hover over error for allowed characters.`
+        : `Please fix errors on line(s): ${invalidLines.join(", ")}`;
+      toast.error(errorMsg);
       return;
+    } else if (invalidLines.length > 0 && force) {
+      toast.warning(`Force submit enabled. Proceeding despite issues on line(s): ${invalidLines.join(', ')}`);
     }
 
     setSubmitting(true);
@@ -331,6 +369,20 @@ export default function OrderPage() {
     }
 
     return;
+  }
+
+  const onSubmit: SubmitHandler<FormValues> = async (values) => {
+    // Normal path (zod passed): still respect toggle for consistency
+    await performSubmission(values, !!allowForce);
+  };
+
+  const onInvalid = async () => {
+    // If user enabled force submit and agent isn't offline, run anyway
+    if (allowForce && agentOnline !== false) {
+      const values = form.getValues();
+      await performSubmission(values as FormValues, true);
+    }
+    // Otherwise, let the existing inline errors + toast guide the user (we already disable focus)
   };
 
   return (
@@ -339,8 +391,8 @@ export default function OrderPage() {
         {/* Debug Console removed */}
       <header className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">IDT Bulk Ordering</h1>
-          <p className="text-sm text-muted-foreground">Add lines, choose parameters, and generate codes.</p>
+          <h1 className="text-2xl font-semibold tracking-tight">IDT React</h1>
+          <p className="text-sm text-muted-foreground">Improved bulk ordering of DNA oligonucleotides and Probes from IDT</p>
 
           {/* Console was moved below header to span full width */}
         </div>
@@ -350,7 +402,11 @@ export default function OrderPage() {
             <span className="select-none">Agent: {agentOnline ? 'Online' : agentOnline === false ? 'Offline' : 'Checking…'}{agentOnline && agentVersion ? ` v${agentVersion}` : ''}</span>
             <Button type="button" variant="outline" size="sm" className="h-7 px-2" onClick={() => setOpenAgentHelp(true)}>Help</Button>
           </div>
-          {/* Import / Export / Clear Controls (styled to align with other tool groups) */}
+          <div className="flex items-center gap-2 text-xs border rounded-md px-3 py-2 bg-muted/40">
+            <label htmlFor="force-submit" className="text-xs select-none">Allow Force Submit</label>
+            <Switch id="force-submit" checked={allowForce} onCheckedChange={setAllowForce} disabled={agentOnline === false} />
+          </div>
+          {/* Import / Export / Clear Controls & Mode (merged into one box) */}
           <div className="flex items-center gap-2 text-xs border rounded-md px-3 py-2 bg-muted/40">
             <Button
               type="button"
@@ -368,7 +424,6 @@ export default function OrderPage() {
             >
               Export
             </Button>
-            {/* Export CSV removed per request */}
             <Dialog open={openClear} onOpenChange={setOpenClear}>
               <DialogTrigger asChild>
                 <Button
@@ -411,9 +466,7 @@ export default function OrderPage() {
                 </DialogFooter>
               </DialogContent>
             </Dialog>
-          </div>
-          <div className="flex items-center gap-2 text-xs border rounded-md px-3 py-2 bg-muted/40">
-            <span className="font-medium select-none">Mode</span>
+            <div className="h-4 w-px bg-border mx-1"></div>
             <div role="group" aria-label="Import mode" className="flex rounded-md overflow-hidden border bg-background">
               <button
                 type="button"
@@ -520,7 +573,7 @@ export default function OrderPage() {
 
   {/* Console removed per user request */}
 
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+  <form onSubmit={handleSubmit(onSubmit, onInvalid)} className="space-y-4">
         {/* Hidden file input for import */}
         <input
           ref={fileInputRef}
@@ -541,38 +594,132 @@ export default function OrderPage() {
               <div className="absolute -top-3 -left-3 bg-foreground text-background w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium border">
                 {idx + 1}
               </div>
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-12 md:items-end">
-                {/* Kind */}
-                <div className="md:col-span-2">
-                  <Label className="mb-1 block">Type</Label>
-                  <Controller
-                    control={control}
-                    name={`items.${idx}.kind`}
-                    render={({ field }) => (
-                      <Select value={field.value} onValueChange={field.onChange}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {kindOptions.map((k) => (
-                            <SelectItem key={k.value} value={k.value} disabled={k.value === "probe"}>
-                              {k.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    )}
-                  />
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-12">
+                {/* Type, Scale, and Validation - stacked vertically in same column */}
+                <div className="md:col-span-2 space-y-3">
+                  <div>
+                    <Label className="mb-1 block">Type</Label>
+                    <Controller
+                      control={control}
+                      name={`items.${idx}.kind`}
+                      render={({ field }) => (
+                        <Select value={field.value} onValueChange={field.onChange}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {kindOptions.map((k) => (
+                              <SelectItem key={k.value} value={k.value} disabled={k.value === "probe"}>
+                                {k.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    />
+                  </div>
+                  <div>
+                    <Label className="mb-1 block">Scale</Label>
+                    <Controller
+                      control={control}
+                      name={`items.${idx}.params.scale`}
+                      render={({ field }) => (
+                        <Select value={field.value} onValueChange={field.onChange}>
+                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            {scaleOptions.map((o) => (
+                              <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    />
+                  </div>
+                  <div>
+                    {(() => {
+                      const it = items?.[idx] || {};
+                      const res = validateRow(it);
+                      
+                      if (!it.name && !it.sequence) {
+                        return <span className="text-xs text-muted-foreground">Empty</span>;
+                      }
+                      if (res.valid) {
+                        return <span className="text-xs text-muted-foreground">\u2713 Valid</span>;
+                      }
+                      if (res.reason === 'name_or_sequence_missing') {
+                        return <span className="text-xs text-muted-foreground">Missing name/sequence</span>;
+                      }
+                      if (res.reason === 'length_out_of_range') {
+                        return <span className="text-xs text-muted-foreground">Length {res.min}-{res.max}</span>;
+                      }
+                      if (res.reason === 'invalid_characters') {
+                        return (
+                          <TooltipProvider delayDuration={200}>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="text-xs text-muted-foreground cursor-help border-b border-dotted border-muted-foreground/40">
+                                  Invalid characters
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent side="right" className="max-w-xs">
+                                <p className="text-xs font-semibold mb-1">Allowed for {res.kind}:</p>
+                                <p className="text-xs font-mono">{res.allowedChars}</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        );
+                      }
+                      return <span className="text-xs text-muted-foreground">Invalid</span>;
+                    })()}
+                  </div>
                 </div>
 
-                {/* Name */}
-                <div className="md:col-span-3">
-                  <Label className="mb-1 block">Name</Label>
-                  <Controller
-                    control={control}
-                    name={`items.${idx}.name`}
-                    render={({ field }) => <Input {...field} placeholder="e.g., MYC_exon2_F" />}
-                  />
+                {/* Name, Purification, and Actions - stacked vertically in same column */}
+                <div className="md:col-span-3 space-y-3">
+                  <div>
+                    <Label className="mb-1 block">Name</Label>
+                    <Controller
+                      control={control}
+                      name={`items.${idx}.name`}
+                      render={({ field }) => <Input {...field} placeholder="e.g., MYC_exon2_F" />}
+                    />
+                  </div>
+                  <div>
+                    <Label className="mb-1 block">Purification</Label>
+                    <Controller
+                      control={control}
+                      name={`items.${idx}.params.purification`}
+                      render={({ field }) => (
+                        <Select value={field.value} onValueChange={field.onChange}>
+                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            {purificationOptions.map((o) => (
+                              <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <Button type="button" variant="secondary" onClick={() => insert(idx + 1, {
+                      ...items[idx],
+                      id: newId(),
+                      name: items[idx].name ? `${items[idx].name}_copy` : "",
+                    })}>
+                      Duplicate
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      size="icon"
+                      onClick={() => remove(idx)}
+                      className="bg-destructive text-white p-0 h-9 w-9 rounded-md"
+                      aria-label="Delete line"
+                    >
+                      <TrashIcon className="size-4 text-white" />
+                    </Button>
+                  </div>
                 </div>
 
                 {/* Sequence */}
@@ -580,65 +727,57 @@ export default function OrderPage() {
                   {(() => {
                     const scale = items?.[idx]?.params?.scale || '25nm';
                     const range = scaleRanges[scale];
-                    const label = range ? `Sequence (${range.min}→${range.max})` : 'Sequence (5’→3’)';
+                    const label = range ? `Sequence (${range.min}-${range.max})` : 'Sequence (5\u2032-3\u2032)';
                     return <Label className="mb-1 block">{label}</Label>;
                   })()}
                   <Controller
                     control={control}
                     name={`items.${idx}.sequence`}
-                    render={({ field }) => <Input {...field} placeholder="ACGT..." />}
+                    render={({ field }) => (
+                      <Textarea
+                        {...field}
+                        placeholder="ACGT..."
+                        className="resize-none overflow-hidden transition-all duration-300 ease-in-out min-h-[40px]"
+                        rows={1}
+                        onFocus={(e) => {
+                          // Expand based on content, minimum 80px when focused
+                          e.currentTarget.style.height = 'auto';
+                          e.currentTarget.style.height = Math.max(57, e.currentTarget.scrollHeight) + 'px';
+                        }}
+                        onBlur={(e) => {
+                          // Capitalize letters, preserve spaces, then shrink back to one line
+                          const capitalized = e.currentTarget.value.replace(/[a-z]/g, (char) => char.toUpperCase());
+                          field.onChange(capitalized);
+                          
+                          // Shrink back to single line
+                          const target = e.currentTarget;
+                          setTimeout(() => {
+                            target.style.height = '40px';
+                          }, 0);
+                        }}
+                        onInput={(e) => {
+                          // Auto-expand as user types, minimum 80px when focused
+                          e.currentTarget.style.height = 'auto';
+                          e.currentTarget.style.height = Math.max(57, e.currentTarget.scrollHeight) + 'px';
+                        }}
+                      />
+                    )}
                   />
                 </div>
               </div>
 
-              {/* Params row */}
-              <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-12">
-                <div className="md:col-span-2">
-                  <Label className="mb-1 block">Scale</Label>
-                  <Controller
-                    control={control}
-                    name={`items.${idx}.params.scale`}
-                    render={({ field }) => (
-                      <Select value={field.value} onValueChange={field.onChange}>
-                        <SelectTrigger><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          {scaleOptions.map((o) => (
-                            <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    )}
-                  />
-                </div>
-                <div className="md:col-span-2">
-                  <Label className="mb-1 block">Purification</Label>
-                  <Controller
-                    control={control}
-                    name={`items.${idx}.params.purification`}
-                    render={({ field }) => (
-                      <Select value={field.value} onValueChange={field.onChange}>
-                        <SelectTrigger><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          {purificationOptions.map((o) => (
-                            <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    )}
-                  />
-                </div>
-
-                {items?.[idx]?.kind === "probe" && (
-                  <>
-                    <div className="md:col-span-2">
-                      <Label className="mb-1 block">5 Mod</Label>
-                      <Controller
-                        control={control}
-                        name={`items.${idx}.params.fivePrime`}
-                        render={({ field }) => (
-                          <Select value={field.value} onValueChange={field.onChange}>
-                            <SelectTrigger><SelectValue /></SelectTrigger>
-                            <SelectContent>
+              {/* Additional Params row for probe-specific fields */}
+              {items?.[idx]?.kind === "probe" && (
+                <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-12">
+                  <div className="md:col-span-2">
+                    <Label className="mb-1 block">5 Mod</Label>
+                    <Controller
+                      control={control}
+                      name={`items.${idx}.params.fivePrime`}
+                      render={({ field }) => (
+                        <Select value={field.value} onValueChange={field.onChange}>
+                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectContent>
                               {fivePrimeOptions.map((o) => (
                                 <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
                               ))}
@@ -701,43 +840,9 @@ export default function OrderPage() {
                         )}
                       />
                     </div>
-                  </>
+                  </div>
                 )}
-              </div>
 
-              {/* Row actions */}
-              <div className="mt-4 flex items-center justify-between">
-                <span className="text-xs text-muted-foreground">
-                  {(() => {
-                    const it = items?.[idx] || {};
-                    const res = validateRow(it);
-                    if (!it.name && !it.sequence) return 'Empty';
-                    if (res.valid) return '\u2713 Valid';
-                    if (res.reason === 'name_or_sequence_missing') return 'Missing name/sequence';
-                    if (res.reason === 'length_out_of_range') return `Length ${res.min}-${res.max}`;
-                    return 'Invalid';
-                  })()}
-                </span>
-                <div className="flex gap-2">
-                  <Button type="button" variant="secondary" onClick={() => insert(idx + 1, {
-                    ...items[idx],
-                    id: newId(),
-                    name: items[idx].name ? `${items[idx].name}_copy` : "",
-                  })}>
-                    Duplicate
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="destructive"
-                    size="icon"
-                    onClick={() => remove(idx)}
-                    className="bg-destructive text-white p-0 h-9 w-9 rounded-md"
-                    aria-label="Delete line"
-                  >
-                    <TrashIcon className="size-4 text-white" />
-                  </Button>
-                </div>
-              </div>
             </motion.div>
           ))}
         </div>
@@ -768,16 +873,22 @@ export default function OrderPage() {
             )}
             <Button
               type="submit"
-              disabled={invalidLines.length > 0 || submitting || agentOnline !== true}
+              disabled={(agentOnline === false) || submitting || (invalidLines.length > 0 && !allowForce)}
               className={
-                invalidLines.length > 0 || agentOnline !== true
+                (agentOnline === false) || (invalidLines.length > 0 && !allowForce)
                   ? 'bg-gray-300 text-gray-600 cursor-not-allowed hover:bg-gray-300'
                   : submitting
                     ? 'relative bg-primary text-primary-foreground opacity-70'
                     : 'bg-primary text-primary-foreground hover:bg-primary/90'
               }
             >
-              {submitting ? 'Working…' : agentOnline !== true ? 'Start agent to submit' : 'Submit'}
+              {submitting
+                ? 'Working…'
+                : agentOnline === false
+                  ? 'Start agent to submit'
+                  : allowForce && invalidLines.length > 0
+                    ? 'Force Submit'
+                    : 'Submit'}
             </Button>
           </div>
         </div>

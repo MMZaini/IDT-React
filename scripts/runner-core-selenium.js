@@ -92,6 +92,32 @@ function createLogger() {
   };
 }
 
+// Try to bring Chrome to the foreground using OS-specific tools
+function tryFocusChrome(log, titleHint) {
+  try {
+    const { spawn } = require('child_process');
+    const plat = process.platform;
+    if (plat === 'win32') {
+      // Use WScript.Shell.AppActivate via PowerShell; try a few times in case window title updates
+      const ps = `$sh = New-Object -ComObject WScript.Shell; 1..5 | ForEach-Object { Start-Sleep -Milliseconds 200; $null = $sh.AppActivate('${titleHint.replace(/'/g, "''")}') }`;
+      spawn('powershell.exe', ['-NoProfile', '-WindowStyle', 'Hidden', '-Command', ps], { detached: true, stdio: 'ignore' }).unref();
+    } else if (plat === 'darwin') {
+      // Ask Chrome to activate via AppleScript
+      spawn('osascript', ['-e', 'tell application "Google Chrome" to activate'], { detached: true, stdio: 'ignore' }).unref();
+    } else {
+      // Linux: best-effort with wmctrl or xdotool if available
+      // wmctrl -a can match by window title
+      const wmctrl = spawn('wmctrl', ['-a', titleHint], { detached: true, stdio: 'ignore' });
+      wmctrl.on('error', () => {
+        const xdotool = spawn('xdotool', ['search', '--name', titleHint, 'windowactivate'], { detached: true, stdio: 'ignore' });
+        xdotool.unref();
+      });
+      wmctrl.unref();
+    }
+    log && log.log('Focus attempt issued');
+  } catch {}
+}
+
 async function robustClick(driver, el, log) {
   try { await driver.executeScript('arguments[0].scrollIntoView({block:"center"})', el); } catch {}
   try { await driver.wait(until.elementIsVisible(el), 5000); } catch {}
@@ -115,13 +141,17 @@ async function acceptCookiesIfPresent(driver, log) {
   ];
   for (const xp of cookieXPaths) {
     try {
-      await driver.wait(until.elementLocated(By.xpath(xp)), 2000);
+      // Reduced wait time to 500ms for faster detection
+      await driver.wait(until.elementLocated(By.xpath(xp)), 500);
       const btn = await driver.findElement(By.xpath(xp));
       await robustClick(driver, btn, log);
-  log.log('Accepted cookies');
+      log.log('Accepted cookies');
       return;
-    } catch {}
+    } catch {
+      // Element not found, try next XPath
+    }
   }
+  log.log('No cookie banner detected (likely already accepted)');
 }
 
 async function runSelenium({ csv, test }, log = createLogger()) {
@@ -145,12 +175,17 @@ async function runSelenium({ csv, test }, log = createLogger()) {
     if (service) builder.setChromeService(service);
     driver = await builder.setChromeOptions(options).build();
     log.log('Chrome ready');
+    // Initial focus attempt (no title yet)
+    tryFocusChrome(log, 'Google Chrome');
   } catch (err) {
     log.log('Failed to create driver', err && err.message);
     return { ok: false, output: log.output() };
   }
   try {
   await driver.get('https://eu.idtdna.com/site/order/oligoentry');
+    // Set a unique title hint to help activation by title
+    try { await driver.executeScript('document.title = "IDT Agent — Automation | " + (document.title || "")'); } catch {}
+    tryFocusChrome(log, 'IDT Agent — Automation');
     await acceptCookiesIfPresent(driver, log);
 
     if (test) {
