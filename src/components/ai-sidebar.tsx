@@ -8,7 +8,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Settings, Sparkles, ChevronRight, ChevronLeft, Plus, X, Upload, RotateCcw } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Settings, Sparkles, ChevronRight, ChevronLeft, Plus, X, Upload, RotateCcw, Info } from "lucide-react";
 import { toast } from "sonner";
 
 interface AiSidebarProps {
@@ -78,8 +79,10 @@ export function AiSidebar({ onImport }: AiSidebarProps) {
     }
 
     const validOrganisms = organisms.filter(o => o.trim());
-    if (validOrganisms.length === 0) {
-      toast.error('Please enter at least one organism');
+    
+    // Check if we have either organisms OR additional context/file
+    if (validOrganisms.length === 0 && !additionalText.trim() && !additionalFile) {
+      toast.error('Please enter organisms or provide additional context/file');
       return;
     }
 
@@ -89,10 +92,81 @@ export function AiSidebar({ onImport }: AiSidebarProps) {
     try {
       let fileContent = '';
       if (additionalFile) {
-        fileContent = await additionalFile.text();
+        const rawContent = await additionalFile.text();
+        const maxChars = 50000;
+        
+        // If file is too large, use AI to extract relevant DNA sequence information first
+        if (rawContent.length > maxChars) {
+          toast.info('Large file detected - extracting relevant sections...');
+          
+          try {
+            // First pass: Extract only DNA/sequence-relevant sections
+            const extractionPrompt = `You are analyzing a scientific document. Extract ONLY the sections that contain or discuss DNA sequences, oligonucleotides, primers, or genetic information. 
+
+Remove all irrelevant sections like:
+- References/bibliography
+- Author information
+- Abstract (unless it contains sequences)
+- Methods (unless describing sequences)
+- Acknowledgments
+- General discussion without sequences
+
+Keep:
+- Sequence data (ACGT strings)
+- Tables with sequences
+- Primers/oligos descriptions
+- Gene names and their sequences
+- Any NCBI/GenBank references
+
+Respond with ONLY the relevant extracted text, no explanations. If no relevant sections found, respond with "NO_SEQUENCES_FOUND".`;
+
+            const extractionResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiKey}`
+              },
+              body: JSON.stringify({
+                model: 'gpt-4o-mini',
+                messages: [
+                  { role: 'system', content: extractionPrompt },
+                  { role: 'user', content: rawContent.substring(0, 100000) } // Use first 100k chars for extraction
+                ],
+                temperature: 0.1,
+                max_tokens: 8000
+              })
+            });
+
+            if (extractionResponse.ok) {
+              const extractionData = await extractionResponse.json();
+              const extracted = extractionData.choices[0]?.message?.content || '';
+              
+              if (extracted && extracted !== 'NO_SEQUENCES_FOUND' && extracted.length > 100) {
+                fileContent = extracted;
+                toast.success('Relevant sections extracted from large file');
+              } else {
+                fileContent = rawContent.substring(0, maxChars) + '\n\n[... File truncated. Consider uploading a smaller file or text with only relevant sections ...]';
+                toast.warning('Could not extract sequences - using first portion of file');
+              }
+            } else {
+              // Fallback to simple truncation
+              fileContent = rawContent.substring(0, maxChars) + '\n\n[... File truncated due to size ...]';
+              toast.warning('Large file truncated to fit token limits');
+            }
+          } catch (extractError) {
+            // Fallback to simple truncation on any error
+            fileContent = rawContent.substring(0, maxChars) + '\n\n[... File truncated due to size ...]';
+            toast.warning('Large file truncated to fit token limits');
+          }
+        } else {
+          fileContent = rawContent;
+        }
       }
 
-      const organismList = validOrganisms.map((o, i) => `${i + 1}. ${o}`).join('\n');
+      const organismList = validOrganisms.length > 0 
+        ? validOrganisms.map((o, i) => `${i + 1}. ${o}`).join('\n')
+        : '';
+      
       const additionalContext = [
         additionalText ? `User notes:\n${additionalText}` : '',
         fileContent ? `Attached study/document:\n${fileContent}` : ''
@@ -127,14 +201,22 @@ Sequence constraints:
 - Length: 15-60 nt (for 25nm scale)
 - If multiple sequences exist for an organism, include all with clear distinguishing names`;
 
-      const userPrompt = `Find DNA sequences for these organisms:
+      const userPrompt = validOrganisms.length > 0
+        ? `Find DNA sequences for these organisms:
 ${organismList}
 
 Type: ${type === 'oligo' ? 'Oligonucleotides' : 'Probes'}
 
 ${additionalContext}
 
-Provide verified sequences in the JSON format specified. If you find multiple relevant sequences per organism, include them all with descriptive names.`;
+Provide verified sequences in the JSON format specified. If you find multiple relevant sequences per organism, include them all with descriptive names.`
+        : `Extract and provide DNA sequences based on the following context:
+
+Type: ${type === 'oligo' ? 'Oligonucleotides' : 'Probes'}
+
+${additionalContext}
+
+Analyze the provided information and extract or identify relevant DNA sequences. Provide them in the JSON format specified with appropriate names based on the context.`;
 
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
@@ -155,7 +237,14 @@ Provide verified sequences in the JSON format specified. If you find multiple re
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error?.message || `API error: ${response.status}`);
+        const errorMsg = errorData.error?.message || `API error: ${response.status}`;
+        
+        // Special handling for token limit errors
+        if (errorMsg.includes('Request too large') || errorMsg.includes('tokens per min')) {
+          throw new Error('File too large. Try a smaller file or reduce the amount of text.');
+        }
+        
+        throw new Error(errorMsg);
       }
 
       const data = await response.json();
@@ -246,7 +335,28 @@ Provide verified sequences in the JSON format specified. If you find multiple re
             <>
               <div className="flex items-center gap-2">
                 <Sparkles className="size-5 text-purple-600" />
-                <span className="font-semibold">AI Generator</span>
+                <span className="font-semibold">Generate Sequences</span>
+                <TooltipProvider delayDuration={200}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button className="text-muted-foreground hover:text-foreground transition-colors">
+                        <Info className="size-4" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="right" className="max-w-xs">
+                      <div className="space-y-2">
+                        <p className="font-semibold text-xs">Recommended Use Cases:</p>
+                        <ul className="text-xs space-y-1">
+                          <li>• Traditional: Organism names only</li>
+                          <li>• Enhanced: Organism names + additional context</li>
+                          <li>• File-based: Upload a research paper/document to extract sequences</li>
+                          <li>• Text-based: Paste sequences or research notes to format them</li>
+                          <li>• Hybrid: Any combination of organisms, text, and files</li>
+                        </ul>
+                      </div>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
               </div>
               <div className="flex items-center gap-1">
                 <Button variant="ghost" size="icon" className="size-8" onClick={() => setSettingsOpen(!settingsOpen)}>
@@ -516,7 +626,19 @@ Provide verified sequences in the JSON format specified. If you find multiple re
               }
               return null;
             })()}
-            <Button onClick={generateSequences}>
+            <Button 
+              onClick={() => {
+                const selectedEntry = history.find(h => h.id === selectedHistoryId);
+                if (selectedEntry) {
+                  // Populate the form with the history entry's parameters
+                  setType(selectedEntry.type);
+                  setOrganisms(selectedEntry.organisms.length > 0 ? selectedEntry.organisms : ['']);
+                  setAdditionalText(selectedEntry.additionalText || '');
+                  setShowOutput(false);
+                  toast.info('Form populated with previous parameters');
+                }
+              }}
+            >
               <RotateCcw className="size-4 mr-2" /> Try Again
             </Button>
           </DialogFooter>
