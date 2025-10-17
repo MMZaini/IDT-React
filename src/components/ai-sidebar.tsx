@@ -9,7 +9,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Settings, Sparkles, ChevronRight, ChevronLeft, Plus, X, Upload, RotateCcw, Info, Trash2, Download, FileUp } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { Settings, Sparkles, ChevronRight, ChevronLeft, Plus, X, Upload, RotateCcw, Info, Trash2, Download, FileUp, HelpCircle, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
 
 interface AiSidebarProps {
@@ -30,6 +31,96 @@ function newId() {
   return Math.random().toString(36).slice(2, 10);
 }
 
+// Load PDF.js from CDN to avoid SSR issues
+async function loadPdfJsLib() {
+  if (typeof window === 'undefined') {
+    throw new Error('PDF.js can only be loaded in the browser');
+  }
+
+  // Check if already loaded
+  if ((window as any).pdfjsLib) {
+    return (window as any).pdfjsLib;
+  }
+
+  // Load PDF.js from CDN
+  return new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+    script.onload = () => {
+      const pdfjsLib = (window as any).pdfjsLib;
+      if (pdfjsLib) {
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        resolve(pdfjsLib);
+      } else {
+        reject(new Error('Failed to load PDF.js library'));
+      }
+    };
+    script.onerror = () => reject(new Error('Failed to load PDF.js from CDN'));
+    document.head.appendChild(script);
+  });
+}
+
+// Extract text from PDF file
+async function extractTextFromPDF(file: File): Promise<string> {
+  // Ensure we're only running in the browser
+  if (typeof window === 'undefined') {
+    throw new Error('PDF extraction is only available in the browser');
+  }
+
+  try {
+    // Load PDF.js from CDN
+    const pdfjsLib = await loadPdfJsLib();
+    
+    const arrayBuffer = await file.arrayBuffer();
+    
+    // Validate PDF file size (max 50MB)
+    if (arrayBuffer.byteLength > 50 * 1024 * 1024) {
+      throw new Error('PDF file too large (max 50MB)');
+    }
+    
+    const loadingTask = pdfjsLib.getDocument({ 
+      data: arrayBuffer,
+      useWorkerFetch: false,
+      isEvalSupported: false,
+      useSystemFonts: true
+    });
+    
+    const pdf = await loadingTask.promise;
+    
+    if (!pdf || pdf.numPages === 0) {
+      throw new Error('PDF has no pages or is corrupted');
+    }
+    
+    let fullText = '';
+    for (let i = 1; i <= pdf.numPages; i++) {
+      try {
+        const page = await pdf.getPage(i);
+        const textContent = await page.getTextContent();
+        const pageText = textContent.items
+          .map((item: any) => item.str || '')
+          .join(' ')
+          .trim();
+        if (pageText) {
+          fullText += pageText + '\n\n';
+        }
+      } catch (pageError) {
+        console.warn(`Failed to extract page ${i}:`, pageError);
+        // Continue with other pages
+      }
+    }
+    
+    if (!fullText.trim()) {
+      throw new Error('No text content found in PDF. The PDF may be image-based or protected.');
+    }
+    
+    return fullText.trim();
+  } catch (error) {
+    console.error('PDF extraction error:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    throw new Error(`Failed to extract PDF text: ${errorMessage}`);
+  }
+}
+
 export function AiSidebar({ onImport }: AiSidebarProps) {
   const [isOpen, setIsOpen] = React.useState(false);
   const [settingsOpen, setSettingsOpen] = React.useState(false);
@@ -44,7 +135,43 @@ export function AiSidebar({ onImport }: AiSidebarProps) {
   const [selectedHistoryId, setSelectedHistoryId] = React.useState<string | null>(null);
   const [showOutput, setShowOutput] = React.useState(false);
   const [showClearConfirm, setShowClearConfirm] = React.useState(false);
+  const [expandedSearch, setExpandedSearch] = React.useState(false);
+  const [showWelcome, setShowWelcome] = React.useState(false);
+  const [welcomeCountdown, setWelcomeCountdown] = React.useState(3);
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
+
+  // Check if first time user and show welcome
+  React.useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const hasSeenWelcome = localStorage.getItem('idt-ai-welcome-seen');
+      if (!hasSeenWelcome && isOpen) {
+        setShowWelcome(true);
+      }
+    }
+  }, [isOpen]);
+
+  // Countdown timer for welcome dialog
+  React.useEffect(() => {
+    if (showWelcome && welcomeCountdown > 0) {
+      const timer = setTimeout(() => {
+        setWelcomeCountdown(prev => prev - 1);
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [showWelcome, welcomeCountdown]);
+
+  const handleWelcomeContinue = () => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('idt-ai-welcome-seen', 'true');
+    }
+    setShowWelcome(false);
+    setWelcomeCountdown(3); // Reset for next time
+  };
+
+  const handleShowWelcomeAgain = () => {
+    setWelcomeCountdown(3);
+    setShowWelcome(true);
+  };
 
   // Load from localStorage
   React.useEffect(() => {
@@ -93,84 +220,28 @@ export function AiSidebar({ onImport }: AiSidebarProps) {
     try {
       let fileContent = '';
       if (additionalFile) {
-        const rawContent = await additionalFile.text();
-        const maxChars = 50000;
-        
-        // If file is too large, use AI to extract relevant DNA sequence information first
-        if (rawContent.length > maxChars) {
-          toast.info('Large file detected - extracting relevant sections...');
-          
+        // Check if file is PDF and extract text
+        if (additionalFile.type === 'application/pdf' || additionalFile.name.toLowerCase().endsWith('.pdf')) {
+          toast.info('Extracting text from PDF...');
           try {
-            // First pass: Extract only DNA/sequence-relevant sections
-            const extractionPrompt = `Extract ALL DNA sequences and related context from this document.
-
-WHAT TO EXTRACT:
-1. Any DNA/RNA sequences (strings of A, C, G, T, U letters)
-2. Primer sequences (forward/reverse)
-3. Oligonucleotide sequences
-4. Probe sequences
-5. Gene names with their sequences
-6. Tables containing sequences
-7. Supplementary sequence data
-8. GenBank/NCBI accession numbers with sequences
-9. Sequence descriptions and labels
-
-WHAT TO REMOVE:
-- Author names and affiliations
-- References/citations
-- Methodology without sequences
-- General discussion
-- Acknowledgments
-- Copyright notices
-
-BE VERY LIBERAL - if there's ANY mention of sequences, DNA, primers, or oligonucleotides, include that entire section.
-
-OUTPUT FORMAT:
-Return ONLY the extracted text containing sequences and their context. Include section headers if they help identify sequences. If absolutely no sequences found anywhere, respond with "NO_SEQUENCES_FOUND".`;
-
-            const extractionResponse = await fetch('https://api.openai.com/v1/chat/completions', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${apiKey}`
-              },
-              body: JSON.stringify({
-                model: 'gpt-4o-mini',
-                messages: [
-                  { role: 'system', content: extractionPrompt },
-                  { role: 'user', content: rawContent.substring(0, 150000) } // Use more content - up to 150k chars
-                ],
-                temperature: 0.1,
-                max_tokens: 12000 // Increased token limit for extraction
-              })
-            });
-
-            if (extractionResponse.ok) {
-              const extractionData = await extractionResponse.json();
-              const extracted = extractionData.choices[0]?.message?.content || '';
-              
-              if (extracted && extracted !== 'NO_SEQUENCES_FOUND' && extracted.trim().length > 50) {
-                fileContent = extracted;
-                const percentage = Math.round(extracted.length / rawContent.length * 100);
-                toast.success(`Extracted sequence sections (${percentage}% of file, ~${Math.round(extracted.length / 1000)}KB)`);
-              } else {
-                // Use larger truncation since we're working with file content
-                const largerMaxChars = 80000; // More generous for direct file processing
-                fileContent = rawContent.substring(0, largerMaxChars);
-                toast.warning(`Extraction found no clear sequences - using first ${Math.round(largerMaxChars / 1000)}KB of file. AI will attempt to find sequences in this portion.`);
-              }
-            } else {
-              // Fallback to simple truncation
-              fileContent = rawContent.substring(0, maxChars) + '\n\n[... File truncated due to size ...]';
-              toast.warning('Large file truncated to fit token limits');
-            }
-          } catch (extractError) {
-            // Fallback to simple truncation on any error
-            fileContent = rawContent.substring(0, maxChars) + '\n\n[... File truncated due to size ...]';
-            toast.warning('Large file truncated to fit token limits');
+            fileContent = await extractTextFromPDF(additionalFile);
+            toast.success(`PDF text extracted: ${Math.round(fileContent.length / 1000)}KB of text`);
+          } catch (error) {
+            const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+            toast.error(errorMsg);
+            setLoading(false);
+            return;
           }
         } else {
-          fileContent = rawContent;
+          fileContent = await additionalFile.text();
+        }
+        
+        // Check if file is extremely large (over 500KB of text)
+        // GPT-4o-mini can handle ~128k tokens (~500KB of text)
+        const maxChars = 500000;
+        if (fileContent.length > maxChars) {
+          toast.warning(`File very large (${Math.round(fileContent.length / 1000)}KB). Using first ${Math.round(maxChars / 1000)}KB.`);
+          fileContent = fileContent.substring(0, maxChars) + '\n\n[... File truncated due to size ...]';
         }
       }
 
@@ -183,19 +254,28 @@ Return ONLY the extracted text containing sequences and their context. Include s
         fileContent ? `Attached study/document:\n${fileContent}` : ''
       ].filter(Boolean).join('\n\n');
 
-      // Adjust system prompt based on whether we have file/context vs organism names
+      // Determine the scenario:
+      // 1. Document only (no organisms) → Extract ALL sequences from document
+      // 2. Document + organisms → Find specific organisms in document
+      // 3. Organisms only (no document) → Search databases for organisms
       const hasFileOrContext = Boolean(fileContent || additionalText);
+      const hasOrganisms = validOrganisms.length > 0;
       
-      const systemPrompt = hasFileOrContext
-        ? `You are a DNA sequence research assistant. Your task is to extract and format DNA sequences from provided documents or context.
+      let systemPrompt: string;
+      let userPrompt: string;
+
+      if (hasFileOrContext && !hasOrganisms) {
+        // Scenario 1: Document only - extract ALL DNA sequences
+        systemPrompt = `You are a DNA sequence extraction specialist. Your task is to extract ALL DNA sequences from the provided document.
 
 CRITICAL INSTRUCTIONS:
-1. Extract ANY DNA sequences found in the provided text/document
-2. If sequences are mentioned but not directly shown, search for them in databases (NCBI, GenBank, etc.)
-3. Format sequences properly with appropriate names based on context
-4. If NO sequences are found or mentioned, respond with: {"error": "No DNA sequences found in document"}
-5. NEVER make up or fabricate sequences
-6. Respond ONLY with valid JSON - no additional text, explanations, or markdown
+1. Extract EVERY DNA sequence found in the document (primers, probes, oligonucleotides, gene sequences, etc.)
+2. Look for sequences in tables, figures, text, supplementary data, etc.
+3. Use the exact sequences as written in the document
+4. Create descriptive names based on labels/context in the document
+5. If NO sequences are found, respond with: {"error": "No DNA sequences found in document"}
+6. NEVER make up or fabricate sequences - only extract what's actually in the document
+7. Respond ONLY with valid JSON - no additional text, explanations, or markdown
 
 Response format (JSON only):
 {
@@ -212,12 +292,160 @@ Response format (JSON only):
   ]
 }
 
-Sequence constraints:
-- Only these characters: A, C, G, T, R, Y, S, W, K, M, B, D, H, V, N
-- Length: 15-60 nt (for 25nm scale)
-- Extract ALL sequences mentioned in the document
-- Use descriptive names based on document context`
-        : `You are a DNA sequence research assistant. Your task is to find accurate DNA sequences for the specified organisms.
+SEQUENCE & PARAMS CONSTRAINTS:
+- Characters: ONLY A, C, G, T, R, Y, S, W, K, M, B, D, H, V, N (remove any invalid characters)
+- scale: AUTOMATICALLY select based on sequence length (measured in nucleotides):
+  * 15-60nt: Use "25nm" (most cost-effective for standard oligos)
+  * 10-14nt OR 61-90nt: Use "100nm"
+  * 5-9nt OR 91-100nt: Use "250nm" (or "1um"/"2um" for bulk orders)
+  * 45-200nt: Use "4nmU" or "20nmU" (Ultramer synthesis for longer sequences)
+  * 60-200nt with complexity: Use "PU" (PAGE-purified Ultramer)
+  * 15-45nt rush orders: Use "25nmS" (Sameday)
+- purification: AUTOMATICALLY select based on application (default to most cost-effective):
+  * Standard applications (PCR, cloning): "STD" (Standard Desalting - cheapest, most common)
+  * High purity needed (transfection, sensitive assays): "HPLC" or "PAGE"
+  * RNA work or RNase sensitivity: "RNASE"
+  * Ion exchange applications: "IEHPLC"
+  * Highest purity needed: "DUALHPLC" or "PAGEHPLC"
+
+CRITICAL: If a sequence is outside valid length range for any scale, either:
+1. Truncate/trim the sequence to fit within valid ranges (preferred for extraction)
+2. Split into multiple overlapping shorter sequences
+3. Skip if sequence cannot be salvaged
+
+Extract ALL sequences found - don't filter or select. Use descriptive names from the document's labels/descriptions.`;
+
+        userPrompt = `Extract ALL DNA sequences from the following document:
+
+Type: ${type === 'oligo' ? 'Oligonucleotides' : 'Probes'}
+
+${additionalContext}
+
+Find and extract every DNA sequence present in this document. Provide them all in the JSON format specified.`;
+
+      } else if (hasFileOrContext && hasOrganisms) {
+        // Scenario 2: Document + organisms - find specific organisms in document
+        systemPrompt = `You are a DNA sequence research assistant. Your task is to find DNA sequences for specific organisms using the provided document.
+
+CRITICAL INSTRUCTIONS:
+1. Search the provided document for sequences related to the specified organisms
+2. Extract sequences that match or relate to the organism names provided
+3. If sequences for the organisms are mentioned but not shown, note what's available in the document
+4. Use descriptive names that include organism and gene/region information
+5. If the organisms are NOT found in the document, respond with: {"error": "Specified organisms not found in document"}
+6. NEVER make up or fabricate sequences
+7. Respond ONLY with valid JSON - no additional text, explanations, or markdown
+
+Response format (JSON only):
+{
+  "items": [
+    {
+      "kind": "oligo",
+      "name": "OrganismName_GeneName_Region",
+      "sequence": "ACGT...",
+      "params": {
+        "scale": "25nm",
+        "purification": "STD"
+      }
+    }
+  ]
+}
+
+SEQUENCE & PARAMS CONSTRAINTS:
+- Characters: ONLY A, C, G, T, R, Y, S, W, K, M, B, D, H, V, N (remove any invalid characters)
+- scale: AUTOMATICALLY select the most appropriate scale for sequence length:
+  * 15-60nt: "25nm" (standard, most cost-effective)
+  * 10-14nt OR 61-90nt: "100nm"
+  * 5-9nt OR 91-100nt: "250nm" (or "1um"/"2um"/"5um"/"10um" for large quantities)
+  * 45-200nt: "4nmU" or "20nmU" (Ultramer for long sequences)
+  * 60-200nt complex: "PU" (PAGE Ultramer)
+  * 15-45nt rush: "25nmS" (Sameday service)
+- purification: AUTOMATICALLY select based on likely use case (default to cost-effective):
+  * General use (PCR, sequencing): "STD" (Standard Desalting - default)
+  * High purity needs: "HPLC" or "PAGE"
+  * RNA-sensitive work: "RNASE"
+  * Specialized: "IEHPLC", "DUALHPLC", "PAGEHPLC"
+
+CRITICAL: If sequence length is invalid for all scales:
+1. Truncate to fit valid range (15-200nt)
+2. Split into multiple sequences if very long
+3. Skip if cannot be made valid
+
+Only return sequences for the specified organisms found in the document.`;
+
+        userPrompt = `Find DNA sequences for these specific organisms in the provided document:
+${organismList}
+
+Type: ${type === 'oligo' ? 'Oligonucleotides' : 'Probes'}
+
+${additionalContext}
+
+Search the document for sequences related to these organisms. Provide all relevant sequences in the JSON format specified.`;
+
+      } else {
+        // Scenario 3: Organisms only - search databases
+        if (expandedSearch) {
+          // Expanded search mode - cast a wider net
+          systemPrompt = `You are a DNA sequence research assistant. Your task is to find DNA sequences for the specified organisms using ALL available sources.
+
+CRITICAL INSTRUCTIONS:
+1. Search BROADLY across scientific literature, databases (NCBI, GenBank, published papers, etc.)
+2. Include sequences from research papers, preprints, and other scientific sources
+3. Prioritize verified sequences but include relevant sequences from reliable sources
+4. Find AS MANY relevant sequences as possible for each organism (primers, probes, gene regions, etc.)
+5. Remove duplicate sequences (same sequence with different names)
+6. Include gene/region information in the name field
+7. If you truly cannot find ANY sequences after broad search, respond with: {"error": "No sequences found even with expanded search"}
+8. NEVER fabricate sequences - only use sequences that exist in scientific literature/databases
+9. Respond ONLY with valid JSON - no additional text, explanations, or markdown
+
+Response format (JSON only):
+{
+  "items": [
+    {
+      "kind": "oligo",
+      "name": "OrganismName_GeneName_Region",
+      "sequence": "ACGT...",
+      "params": {
+        "scale": "25nm",
+        "purification": "STD"
+      }
+    }
+  ]
+}
+
+SEQUENCE & PARAMS CONSTRAINTS:
+- Characters: ONLY A, C, G, T, R, Y, S, W, K, M, B, D, H, V, N (strip invalid characters)
+- scale: INTELLIGENTLY auto-select the optimal scale based on sequence length:
+  * 15-60nt: "25nm" (standard synthesis, most economical)
+  * 10-14nt OR 61-90nt: "100nm" (slightly longer)
+  * 5-9nt OR 91-100nt: "250nm" (or "1um"/"2um"/"5um"/"10um" for bulk)
+  * 45-200nt: "4nmU" or "20nmU" (Ultramer technology required)
+  * 60-200nt with complexity: "PU" (PAGE-purified Ultramer)
+  * 15-45nt urgent: "25nmS" (Sameday delivery)
+- purification: INTELLIGENTLY select based on typical use (prioritize cost-effectiveness):
+  * Default/PCR/cloning: "STD" (Standard Desalting - cheapest)
+  * Probes/assays requiring purity: "HPLC" or "PAGE"
+  * RNA applications: "RNASE" (RNase-free)
+  * Specialized needs: "IEHPLC", "DUALHPLC", "PAGEHPLC"
+
+CRITICAL RULES:
+- If sequence is <5nt or >200nt: REJECT or truncate to valid range
+- Ensure EVERY sequence has valid scale for its length
+- Default to most cost-effective options (25nm + STD for 15-60nt)
+
+Return MULTIPLE sequences per organism when available (different genes, regions, primers). No duplicate sequences.`;
+
+          userPrompt = `Find DNA sequences for these organisms using EXPANDED search:
+${organismList}
+
+Type: ${type === 'oligo' ? 'Oligonucleotides' : 'Probes'}
+
+EXPANDED SEARCH MODE: Search broadly across all scientific sources. Find as many relevant, non-duplicate sequences as possible for each organism. Include primers, probes, and gene-specific sequences from research papers and databases.`;
+
+        } else {
+          // Standard search mode - verified databases only
+          systemPrompt = `You are a DNA sequence research assistant. Your task is to find accurate DNA sequences for the specified organisms.
 
 CRITICAL INSTRUCTIONS:
 1. Search for REAL, VERIFIED DNA sequences from scientific databases (NCBI, GenBank, etc.)
@@ -241,27 +469,36 @@ Response format (JSON only):
   ]
 }
 
-Sequence constraints:
-- Only these characters: A, C, G, T, R, Y, S, W, K, M, B, D, H, V, N
-- Length: 15-60 nt (for 25nm scale)
-- If multiple sequences exist for an organism, include all with clear distinguishing names`;
+SEQUENCE & PARAMS CONSTRAINTS:
+- Characters: ONLY A, C, G, T, R, Y, S, W, K, M, B, D, H, V, N (strip any other characters)
+- scale: INTELLIGENTLY choose the right scale for each sequence length:
+  * 15-60nt: "25nm" (standard synthesis, most common and economical)
+  * 10-14nt OR 61-90nt: "100nm" (extended range)
+  * 5-9nt OR 91-100nt: "250nm" (or "1um"/"2um"/"5um"/"10um" for large scale)
+  * 45-200nt: "4nmU" or "20nmU" (Ultramer synthesis for long oligos)
+  * 60-200nt complex: "PU" (PAGE-purified Ultramer)
+  * 15-45nt rush: "25nmS" (Sameday service)
+- purification: INTELLIGENTLY select based on application (favor cost-effective options):
+  * Routine work (PCR, cloning, etc.): "STD" (Standard Desalting - default and cheapest)
+  * High purity required (transfection, CRISPR, etc.): "HPLC" or "PAGE"
+  * RNA-sensitive applications: "RNASE" (RNase-free treatment)
+  * Specialized applications: "IEHPLC" (ion exchange), "DUALHPLC", "PAGEHPLC"
 
-      const userPrompt = validOrganisms.length > 0
-        ? `Find DNA sequences for these organisms:
+CRITICAL VALIDATION:
+- Sequences <5nt or >200nt are INVALID - skip or truncate them
+- EVERY sequence MUST have a scale that matches its length range
+- Always choose the most cost-effective scale/purification that meets requirements
+
+If multiple sequences exist for an organism, include all with clear distinguishing names.`;
+
+          userPrompt = `Find DNA sequences for these organisms:
 ${organismList}
 
 Type: ${type === 'oligo' ? 'Oligonucleotides' : 'Probes'}
 
-${additionalContext}
-
-Provide verified sequences in the JSON format specified. If you find multiple relevant sequences per organism, include them all with descriptive names.`
-        : `Extract and provide DNA sequences based on the following context:
-
-Type: ${type === 'oligo' ? 'Oligonucleotides' : 'Probes'}
-
-${additionalContext}
-
-Analyze the provided information and extract or identify relevant DNA sequences. Provide them in the JSON format specified with appropriate names based on the context.`;
+Provide verified sequences from scientific databases in the JSON format specified. If you find multiple relevant sequences per organism, include them all with descriptive names.`;
+        }
+      }
 
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
@@ -477,50 +714,93 @@ Analyze the provided information and extract or identify relevant DNA sequences.
   return (
     <>
       <div 
-        className={`${isOpen ? 'w-96' : 'w-12'} border-r bg-muted/20 flex flex-col`}
+        className={`${isOpen ? 'w-96' : 'w-12'} border-r bg-gradient-to-b from-purple-50/50 via-transparent to-transparent dark:from-purple-950/20 flex flex-col relative`}
         style={{ transition: 'width 0.4s cubic-bezier(0.4, 0, 0.2, 1)' }}
       >
-        <div className="p-2 border-b flex items-center justify-between">
+        <div className="p-2 border-b bg-background/80 backdrop-blur-sm flex items-center justify-between">
           {isOpen ? (
             <>
               <div className="flex items-center gap-2">
-                <Sparkles className="size-5 text-purple-600" />
-                <span className="font-semibold">Generate Sequences</span>
+                <div className="relative">
+                  <Sparkles className="size-5 text-purple-600 animate-pulse" style={{ animationDuration: '3s' }} />
+                  <div className="absolute inset-0 bg-purple-600/20 blur-md rounded-full animate-pulse" style={{ animationDuration: '3s' }} />
+                </div>
+                <span className="font-semibold bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent">
+                  Generate Sequences
+                </span>
+              </div>
+              <div className="flex items-center gap-1">
                 <TooltipProvider delayDuration={200}>
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <button className="text-muted-foreground hover:text-foreground transition-colors">
-                        <Info className="size-4" />
-                      </button>
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        className="size-8 hover:bg-purple-100 dark:hover:bg-purple-900/30 transition-colors" 
+                        onClick={handleShowWelcomeAgain}
+                      >
+                        <HelpCircle className="size-4" />
+                      </Button>
                     </TooltipTrigger>
-                    <TooltipContent side="right" className="max-w-xs">
-                      <div className="space-y-2">
-                        <p className="font-semibold text-xs">Recommended Use Cases:</p>
-                        <ul className="text-xs space-y-1">
-                          <li>• Traditional: Organism names only</li>
-                          <li>• Enhanced: Organism names + additional context</li>
-                          <li>• File-based: Upload a research paper/document to extract sequences</li>
-                          <li>• Text-based: Paste sequences or research notes to format them</li>
-                          <li>• Hybrid: Any combination of organisms, text, and files</li>
-                        </ul>
-                      </div>
+                    <TooltipContent side="bottom">
+                      <p className="text-xs">View guide</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+                <TooltipProvider delayDuration={200}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        className="size-8 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors" 
+                        onClick={() => setSettingsOpen(!settingsOpen)}
+                      >
+                        <Settings className="size-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom">
+                      <p className="text-xs">OpenAI API settings</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+                <TooltipProvider delayDuration={200}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        className="size-8 hover:bg-muted transition-colors" 
+                        onClick={() => setIsOpen(false)}
+                      >
+                        <ChevronLeft className="size-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom">
+                      <p className="text-xs">Close sidebar</p>
                     </TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
               </div>
-              <div className="flex items-center gap-1">
-                <Button variant="ghost" size="icon" className="size-8" onClick={() => setSettingsOpen(!settingsOpen)}>
-                  <Settings className="size-4" />
-                </Button>
-                <Button variant="ghost" size="icon" className="size-8" onClick={() => setIsOpen(false)}>
-                  <ChevronLeft className="size-4" />
-                </Button>
-              </div>
             </>
           ) : (
-            <Button variant="ghost" size="icon" className="size-8" onClick={() => setIsOpen(true)}>
-              <ChevronRight className="size-4" />
-            </Button>
+            <TooltipProvider delayDuration={200}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    className="size-8 hover:bg-purple-100 dark:hover:bg-purple-900/30 transition-colors" 
+                    onClick={() => setIsOpen(true)}
+                  >
+                    <ChevronRight className="size-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="right">
+                  <p className="text-xs">Open AI sequence generator</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           )}
         </div>
 
@@ -533,67 +813,108 @@ Analyze the provided information and extract or identify relevant DNA sequences.
             }}
           >
             {settingsOpen && (
-              <div className="p-3 border rounded-lg bg-background space-y-3">
+              <div className="p-3 border rounded-lg bg-gradient-to-br from-blue-50/50 to-purple-50/50 dark:from-blue-950/20 dark:to-purple-950/20 space-y-3 animate-in fade-in slide-in-from-top-2 duration-300">
                 <div className="flex items-center justify-between">
-                  <Label className="text-sm font-semibold">Settings</Label>
-                  <Button variant="ghost" size="icon" className="size-6" onClick={() => setSettingsOpen(false)}>
+                  <div className="flex items-center gap-2">
+                    <Settings className="size-4 text-blue-600" />
+                    <Label className="text-sm font-semibold">Settings</Label>
+                  </div>
+                  <Button variant="ghost" size="icon" className="size-6 hover:bg-destructive/10 transition-colors" onClick={() => setSettingsOpen(false)}>
                     <X className="size-3" />
                   </Button>
                 </div>
                 <div>
-                  <Label htmlFor="ai-api-key" className="text-xs">OpenAI API Key</Label>
+                  <Label htmlFor="ai-api-key" className="text-xs flex items-center gap-1">
+                    OpenAI API Key
+                    <TooltipProvider delayDuration={200}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Info className="size-3 text-muted-foreground cursor-help" />
+                        </TooltipTrigger>
+                        <TooltipContent side="right" className="max-w-xs">
+                          <p className="text-xs">Get your API key from platform.openai.com</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  </Label>
                   <Input
                     id="ai-api-key"
                     type="password"
                     placeholder="sk-..."
                     value={apiKey}
                     onChange={(e) => setApiKey(e.target.value)}
-                    className="mt-1 text-xs h-8"
+                    className="mt-1 text-xs h-8 transition-all focus:ring-2 focus:ring-blue-500/20"
                   />
                 </div>
               </div>
             )}
 
-            <div>
-              <Label className="text-xs font-semibold mb-2 block">Type</Label>
-              <Select value={type} onValueChange={(v: 'oligo' | 'probe') => setType(v)}>
-                <SelectTrigger className="h-8 text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="oligo">Oligos</SelectItem>
-                  <SelectItem value="probe" disabled>Probes</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <Label className="text-xs font-semibold mb-2 block flex items-center gap-1">
+                  Type
+                  <TooltipProvider delayDuration={200}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Info className="size-3 text-muted-foreground cursor-help" />
+                      </TooltipTrigger>
+                      <TooltipContent side="top">
+                        <p className="text-xs">Sequence type to generate</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </Label>
+                <Select value={type} onValueChange={(v: 'oligo' | 'probe') => setType(v)}>
+                  <SelectTrigger className="h-8 text-xs transition-all hover:border-purple-300 focus:ring-2 focus:ring-purple-500/20">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="oligo">Oligos</SelectItem>
+                    <SelectItem value="probe" disabled>Probes</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
 
-            <div>
-              <Label className="text-xs font-semibold mb-2 block">Mode</Label>
-              <div className="inline-flex border rounded-md overflow-hidden w-full">
-                <button
-                  type="button"
-                  aria-pressed={importMode === 'replace'}
-                  onClick={() => setImportMode('replace')}
-                  className={`flex-1 px-3 py-1.5 text-xs font-medium transition-colors ${
-                    importMode === 'replace'
-                      ? 'bg-accent text-accent-foreground'
-                      : 'hover:bg-accent/50'
-                  }`}
-                >
-                  Replace
-                </button>
-                <button
-                  type="button"
-                  aria-pressed={importMode === 'append'}
-                  onClick={() => setImportMode('append')}
-                  className={`flex-1 px-3 py-1.5 text-xs font-medium transition-colors ${
-                    importMode === 'append'
-                      ? 'bg-accent text-accent-foreground'
-                      : 'hover:bg-accent/50'
-                  }`}
-                >
-                  Append
-                </button>
+              <div>
+                <Label className="text-xs font-semibold mb-2 block flex items-center gap-1">
+                  Mode
+                  <TooltipProvider delayDuration={200}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Info className="size-3 text-muted-foreground cursor-help" />
+                      </TooltipTrigger>
+                      <TooltipContent side="top">
+                        <p className="text-xs">Replace all or append to existing</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </Label>
+                <div className="inline-flex border rounded-md overflow-hidden w-full shadow-sm">
+                  <button
+                    type="button"
+                    aria-pressed={importMode === 'replace'}
+                    onClick={() => setImportMode('replace')}
+                    className={`flex-1 px-2 py-1.5 text-xs font-medium transition-all duration-200 ${
+                      importMode === 'replace'
+                        ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-md scale-105'
+                        : 'bg-background hover:bg-accent/50'
+                    }`}
+                  >
+                    Replace
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={importMode === 'append'}
+                    onClick={() => setImportMode('append')}
+                    className={`flex-1 px-2 py-1.5 text-xs font-medium transition-all duration-200 ${
+                      importMode === 'append'
+                        ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-md scale-105'
+                        : 'bg-background hover:bg-accent/50'
+                    }`}
+                  >
+                    Append
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -601,7 +922,7 @@ Analyze the provided information and extract or identify relevant DNA sequences.
               <Label className="text-xs font-semibold mb-2 block">Organisms</Label>
               <div className="space-y-2">
                 {organisms.map((org, idx) => (
-                  <div key={idx} className="flex gap-2">
+                  <div key={idx} className="flex gap-2 group">
                     <Input
                       placeholder="e.g., E. coli, SARS-CoV-2"
                       value={org}
@@ -610,28 +931,65 @@ Analyze the provided information and extract or identify relevant DNA sequences.
                         newOrgs[idx] = e.target.value;
                         setOrganisms(newOrgs);
                       }}
-                      className="text-xs h-8"
+                      className="text-xs h-8 transition-all focus:ring-2 focus:ring-purple-500/20 group-hover:border-purple-300"
                     />
                     {organisms.length > 1 && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-8"
-                        onClick={() => setOrganisms(organisms.filter((_, i) => i !== idx))}
-                      >
-                        <X className="size-3" />
-                      </Button>
+                      <TooltipProvider delayDuration={200}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="size-8 opacity-0 group-hover:opacity-100 hover:bg-destructive/10 hover:text-destructive transition-all"
+                              onClick={() => setOrganisms(organisms.filter((_, i) => i !== idx))}
+                            >
+                              <X className="size-3" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent side="right">
+                            <p className="text-xs">Remove organism</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
                     )}
                   </div>
                 ))}
                 <Button
                   variant="outline"
                   size="sm"
-                  className="w-full h-7 text-xs"
+                  className="w-full h-7 text-xs hover:bg-purple-50 dark:hover:bg-purple-950/20 hover:border-purple-300 transition-all hover:scale-[1.01]"
                   onClick={() => setOrganisms([...organisms, ''])}
                 >
                   <Plus className="size-3 mr-1" /> Add Organism
                 </Button>
+              </div>
+              
+              <div className="flex items-center justify-between mt-3 p-2.5 rounded-md bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/20 dark:to-orange-950/20 border border-amber-200/50 dark:border-amber-900/50 transition-all hover:shadow-sm">
+                <div className="flex items-center gap-2">
+                  <Label htmlFor="expanded-search" className="text-xs font-medium cursor-pointer">
+                    Expanded Search
+                  </Label>
+                  <TooltipProvider delayDuration={200}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <AlertCircle className="size-3.5 text-amber-600 cursor-help" />
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="max-w-xs">
+                        <p className="text-xs font-semibold mb-1">⚠️ Use with caution</p>
+                        <p className="text-xs">
+                          Only enable if no sequences were found after trying a few times. 
+                          Searches beyond verified databases—may find more results but with less certainty.
+                        </p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </div>
+                <Switch
+                  id="expanded-search"
+                  checked={expandedSearch}
+                  onCheckedChange={setExpandedSearch}
+                  className="data-[state=checked]:bg-amber-600"
+                />
               </div>
             </div>
 
@@ -641,12 +999,24 @@ Analyze the provided information and extract or identify relevant DNA sequences.
                 placeholder="Add notes, study details, or specific requirements..."
                 value={additionalText}
                 onChange={(e) => setAdditionalText(e.target.value)}
-                className="text-xs min-h-[80px] resize-none"
+                className="text-xs min-h-[80px] resize-none transition-all focus:ring-2 focus:ring-purple-500/20"
               />
             </div>
 
             <div>
-              <Label className="text-xs font-semibold mb-2 block">Attach Study/Document (Optional)</Label>
+              <Label className="text-xs font-semibold mb-2 block flex items-center gap-1">
+                Attach Study/Document (Optional)
+                <TooltipProvider delayDuration={200}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Info className="size-3 text-muted-foreground cursor-help" />
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="max-w-xs">
+                      <p className="text-xs">Upload PDFs or text files. AI will extract sequences automatically.</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </Label>
               <input
                 ref={fileInputRef}
                 type="file"
@@ -657,7 +1027,7 @@ Analyze the provided information and extract or identify relevant DNA sequences.
               <Button
                 variant="outline"
                 size="sm"
-                className="w-full h-8 text-xs"
+                className="w-full h-8 text-xs hover:bg-purple-50 dark:hover:bg-purple-950/20 hover:border-purple-300 transition-all"
                 onClick={() => fileInputRef.current?.click()}
               >
                 <Upload className="size-3 mr-1" />
@@ -667,7 +1037,7 @@ Analyze the provided information and extract or identify relevant DNA sequences.
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="w-full h-6 text-xs mt-1"
+                  className="w-full h-6 text-xs mt-1 text-destructive hover:bg-destructive/10 transition-all animate-in fade-in slide-in-from-top-1 duration-200"
                   onClick={() => setAdditionalFile(null)}
                 >
                   <X className="size-3 mr-1" /> Remove
@@ -675,7 +1045,11 @@ Analyze the provided information and extract or identify relevant DNA sequences.
               )}
             </div>
 
-            <Button className="w-full" onClick={generateSequences} disabled={loading || !apiKey}>
+            <Button 
+              className="w-full bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white shadow-md hover:shadow-lg transition-all duration-300 hover:scale-[1.02] disabled:opacity-50 disabled:scale-100" 
+              onClick={generateSequences} 
+              disabled={loading || !apiKey}
+            >
               {loading ? (
                 <>
                   <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2" />
@@ -689,88 +1063,103 @@ Analyze the provided information and extract or identify relevant DNA sequences.
               )}
             </Button>
 
-            {history.length > 0 && (
-              <div className="pt-4 border-t">
-                <div className="flex items-center justify-between mb-2">
-                  <Label className="text-xs font-semibold">History</Label>
-                  <div className="flex gap-1">
-                    <TooltipProvider delayDuration={200}>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="size-6"
-                            onClick={exportHistory}
-                          >
-                            <Download className="size-3" />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent side="top">
-                          <p className="text-xs">Export history</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                    <TooltipProvider delayDuration={200}>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="size-6"
-                            onClick={() => document.getElementById('history-import')?.click()}
-                          >
-                            <FileUp className="size-3" />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent side="top">
-                          <p className="text-xs">Import history</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                    <TooltipProvider delayDuration={200}>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="size-6 hover:text-destructive"
-                            onClick={() => setShowClearConfirm(true)}
-                          >
-                            <Trash2 className="size-3" />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent side="top">
-                          <p className="text-xs">Clear all history</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                    <input
-                      id="history-import"
-                      type="file"
-                      accept=".json"
-                      className="hidden"
-                      onChange={importHistory}
-                    />
-                  </div>
+            <div className="pt-4 border-t border-purple-200/30 dark:border-purple-900/30">
+              <div className="flex items-center justify-between mb-2">
+                <Label className="text-xs font-semibold flex items-center gap-1.5">
+                  <RotateCcw className="size-3.5 text-purple-600" />
+                  History
+                </Label>
+                <div className="flex gap-1">
+                  <TooltipProvider delayDuration={200}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-6 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors"
+                          onClick={() => document.getElementById('history-import')?.click()}
+                        >
+                          <FileUp className="size-3" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">
+                        <p className="text-xs">Import history from file</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                  <TooltipProvider delayDuration={200}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-6 hover:bg-green-100 dark:hover:bg-green-900/30 transition-colors disabled:opacity-50"
+                          onClick={exportHistory}
+                          disabled={history.length === 0}
+                        >
+                          <Download className="size-3" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">
+                        <p className="text-xs">
+                          {history.length === 0 ? 'No history to export' : 'Export history to JSON'}
+                        </p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                  <TooltipProvider delayDuration={200}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-6 hover:bg-destructive/10 hover:text-destructive transition-colors disabled:opacity-50"
+                          onClick={() => setShowClearConfirm(true)}
+                          disabled={history.length === 0}
+                        >
+                          <Trash2 className="size-3" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">
+                        <p className="text-xs">
+                          {history.length === 0 ? 'No history to clear' : 'Clear all history (permanent)'}
+                        </p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                  <input
+                    id="history-import"
+                    type="file"
+                    accept=".json"
+                    className="hidden"
+                    onChange={importHistory}
+                  />
                 </div>
-                <div className="space-y-2 max-h-64 overflow-y-auto">
-                  {history.map((entry) => (
+              </div>
+              
+              {history.length > 0 ? (
+                <div className="space-y-2 max-h-64 overflow-y-auto pr-1 scrollbar-thin">
+                  {history.map((entry, index) => (
                     <div
                       key={entry.id}
-                      className={`relative group rounded border text-xs transition-colors ${
-                        selectedHistoryId === entry.id ? 'bg-muted border-primary' : 'bg-background'
+                      className={`relative group rounded-lg border text-xs transition-all duration-200 hover:shadow-md ${
+                        selectedHistoryId === entry.id 
+                          ? 'bg-gradient-to-r from-purple-50 to-blue-50 dark:from-purple-950/30 dark:to-blue-950/30 border-purple-300 dark:border-purple-700 shadow-sm' 
+                          : 'bg-background hover:border-purple-200 dark:hover:border-purple-900'
                       }`}
+                      style={{
+                        animation: `fadeIn 0.3s ease-out ${index * 0.05}s backwards`
+                      }}
                     >
                       <button
                         onClick={() => {
                           setSelectedHistoryId(entry.id);
                           setShowOutput(true);
                         }}
-                        className="w-full text-left p-2 pr-8 hover:bg-muted/50 transition-colors rounded"
+                        className="w-full text-left p-2.5 pr-8 rounded-lg transition-all"
                       >
                         <div className="flex items-center justify-between mb-1">
-                          <span className={`font-medium ${entry.success ? 'text-green-600' : 'text-red-600'}`}>
+                          <span className={`font-semibold flex items-center gap-1 ${entry.success ? 'text-green-600 dark:text-green-500' : 'text-red-600 dark:text-red-500'}`}>
                             {entry.success ? '✓' : '✗'} {entry.type}
                           </span>
                           <span className="text-muted-foreground text-[10px]">
@@ -778,21 +1167,51 @@ Analyze the provided information and extract or identify relevant DNA sequences.
                           </span>
                         </div>
                         <div className="text-muted-foreground truncate">
-                          {entry.organisms.length > 0 ? entry.organisms.join(', ') : 'From file/context'}
+                          {entry.organisms.length > 0 ? entry.organisms.join(', ') : '📄 From file/context'}
                         </div>
                       </button>
-                      <button
-                        onClick={(e) => deleteHistoryItem(entry.id, e)}
-                        className="absolute top-1 right-1 p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-destructive/10 hover:text-destructive transition-all"
-                        title="Delete history item"
-                      >
-                        <Trash2 className="size-3" />
-                      </button>
+                      <TooltipProvider delayDuration={200}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              onClick={(e) => deleteHistoryItem(entry.id, e)}
+                              className="absolute top-1.5 right-1.5 p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-destructive/20 hover:text-destructive transition-all"
+                            >
+                              <Trash2 className="size-3" />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent side="left">
+                            <p className="text-xs">Delete this entry</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
                     </div>
                   ))}
                 </div>
+              ) : (
+                <div className="text-center py-8 text-sm text-muted-foreground">
+                  No history yet. Generate sequences to see them here.
+                </div>
+              )}
+            </div>
+
+            {/* Footer Disclaimer */}
+            <div className="pt-4 mt-4 border-t border-muted">
+              <div className="text-center space-y-2">
+                <p className="text-[10px] text-muted-foreground">
+                  ⚠️ AI-generated sequences should be verified before use
+                </p>
+                <p className="text-[10px] text-muted-foreground">
+                  Please report bugs to{' '}
+                  <a 
+                    href="mailto:zainimahdi@outlook.com" 
+                    className="text-purple-600 hover:text-purple-700 dark:text-purple-400 dark:hover:text-purple-300 underline transition-colors"
+                  >
+                    zainimahdi@outlook.com
+                  </a>
+                </p>
               </div>
-            )}
+            </div>
           </div>
         )}
       </div>
@@ -887,6 +1306,91 @@ Analyze the provided information and extract or identify relevant DNA sequences.
             </Button>
             <Button variant="destructive" onClick={clearAllHistory}>
               Clear All History
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showWelcome} onOpenChange={setShowWelcome}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <div className="flex items-center gap-3 mb-2">
+              <div className="p-2 rounded-full bg-purple-100 dark:bg-purple-900/30">
+                <Sparkles className="size-6 text-purple-600" />
+              </div>
+              <div>
+                <DialogTitle className="text-xl">Welcome to AI Sequence Generator!</DialogTitle>
+                <p className="text-sm text-muted-foreground mt-1">Let's get you started 🧬</p>
+              </div>
+            </div>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-2">
+            <div className="p-4 rounded-lg bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900">
+              <div className="flex gap-3">
+                <AlertCircle className="size-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                <div className="space-y-2 text-sm">
+                  <p className="font-semibold text-blue-900 dark:text-blue-100">Important Notice</p>
+                  <p className="text-blue-800 dark:text-blue-200">
+                    This AI tool generates DNA sequences based on your input. While powerful, it's not perfect:
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-3 text-sm">
+              <div className="flex gap-3">
+                <div className="p-1.5 rounded-full bg-purple-100 dark:bg-purple-900/30 h-fit">
+                  <Info className="size-4 text-purple-600" />
+                </div>
+                <div>
+                  <p className="font-semibold mb-1">Verify Your Results</p>
+                  <p className="text-muted-foreground">
+                    Always double-check generated sequences against trusted databases before using them in experiments.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex gap-3">
+                <div className="p-1.5 rounded-full bg-purple-100 dark:bg-purple-900/30 h-fit">
+                  <RotateCcw className="size-4 text-purple-600" />
+                </div>
+                <div>
+                  <p className="font-semibold mb-1">Try Multiple Times</p>
+                  <p className="text-muted-foreground">
+                    If results aren't quite right, try rephrasing your request or running it again. Each generation can vary slightly.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex gap-3">
+                <div className="p-1.5 rounded-full bg-purple-100 dark:bg-purple-900/30 h-fit">
+                  <HelpCircle className="size-4 text-purple-600" />
+                </div>
+                <div>
+                  <p className="font-semibold mb-1">Need Help?</p>
+                  <p className="text-muted-foreground">
+                    Click the <HelpCircle className="size-3 inline" /> icon in the sidebar header anytime to see this guide again.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <p className="text-xs text-muted-foreground">
+                <strong>Pro tip:</strong> For best results, provide organism names, upload research papers (PDFs), 
+                or add additional context about what you're looking for. The more information you provide, the better the results!
+              </p>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button 
+              onClick={handleWelcomeContinue}
+              disabled={welcomeCountdown > 0}
+              className="w-full"
+            >
+              {welcomeCountdown > 0 ? `Continue in ${welcomeCountdown}s...` : 'Got it, let\'s go! 🚀'}
             </Button>
           </DialogFooter>
         </DialogContent>

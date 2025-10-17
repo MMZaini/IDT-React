@@ -98,9 +98,21 @@ function tryFocusChrome(log, titleHint) {
     const { spawn } = require('child_process');
     const plat = process.platform;
     if (plat === 'win32') {
-      // Use WScript.Shell.AppActivate via PowerShell; try a few times in case window title updates
-      const ps = `$sh = New-Object -ComObject WScript.Shell; 1..5 | ForEach-Object { Start-Sleep -Milliseconds 200; $null = $sh.AppActivate('${titleHint.replace(/'/g, "''")}') }`;
+      // Use WScript.Shell.AppActivate via PowerShell with more aggressive attempts
+      const ps = `$sh = New-Object -ComObject WScript.Shell; 1..10 | ForEach-Object { Start-Sleep -Milliseconds 100; $null = $sh.AppActivate('${titleHint.replace(/'/g, "''")}') }`;
       spawn('powershell.exe', ['-NoProfile', '-WindowStyle', 'Hidden', '-Command', ps], { detached: true, stdio: 'ignore' }).unref();
+      // Also try focusing by process name as backup
+      const ps2 = `Add-Type @"
+        using System;
+        using System.Runtime.InteropServices;
+        public class WinFocus {
+          [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+          [DllImport("user32.dll")] public static extern IntPtr FindWindow(string className, string windowName);
+        }
+"@; $hwnd = [WinFocus]::FindWindow($null, '${titleHint.replace(/'/g, "''")}'); if ($hwnd) { [WinFocus]::SetForegroundWindow($hwnd) }`;
+      setTimeout(() => {
+        spawn('powershell.exe', ['-NoProfile', '-WindowStyle', 'Hidden', '-Command', ps2], { detached: true, stdio: 'ignore' }).unref();
+      }, 300);
     } else if (plat === 'darwin') {
       // Ask Chrome to activate via AppleScript
       spawn('osascript', ['-e', 'tell application "Google Chrome" to activate'], { detached: true, stdio: 'ignore' }).unref();
@@ -163,6 +175,9 @@ async function runSelenium({ csv, test }, log = createLogger()) {
 
   let options = new chrome.Options();
   options = options.addArguments('--start-maximized');
+  // These flags help ensure the window appears in the foreground
+  options = options.addArguments('--new-window');
+  options = options.addArguments('--force-app-mode');
   options = options.addArguments(`--user-data-dir=${profileDir}`);
   // Use a named profile to avoid "Default" profile conflicts
   options = options.addArguments('--profile-directory=IDT-Agent');
@@ -185,7 +200,12 @@ async function runSelenium({ csv, test }, log = createLogger()) {
   await driver.get('https://eu.idtdna.com/site/order/oligoentry');
     // Set a unique title hint to help activation by title
     try { await driver.executeScript('document.title = "IDT Agent — Automation | " + (document.title || "")'); } catch {}
+    // Multiple focus attempts with delays
     tryFocusChrome(log, 'IDT Agent — Automation');
+    await driver.sleep(300);
+    tryFocusChrome(log, 'IDT Agent — Automation');
+    // JavaScript window focus as additional measure
+    try { await driver.executeScript('window.focus();'); } catch {}
     await acceptCookiesIfPresent(driver, log);
 
     if (test) {

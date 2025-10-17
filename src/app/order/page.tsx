@@ -313,6 +313,13 @@ export default function OrderPage() {
 
   async function performSubmission(values: FormValues, force: boolean) {
     if (submitting) return; // anti-spam guard
+    
+    // Check if agent is offline
+    if (agentOnline === false) {
+      toast.error('Cannot submit: Agent is offline. Please start the agent first.');
+      return;
+    }
+    
     // Validate all lines before proceeding
     const invalidLines: number[] = [];
     function csvField(v: string) {
@@ -417,41 +424,90 @@ export default function OrderPage() {
           <div className="flex items-center gap-2 text-xs border rounded-md px-3 py-2 bg-muted/40">
             <div className={`w-2.5 h-2.5 rounded-full ${agentOnline ? 'bg-green-500' : agentOnline === false ? 'bg-red-500' : 'bg-gray-400'}`} />
             <span className="select-none">Agent: {agentOnline ? 'Online' : agentOnline === false ? 'Offline' : 'Checking…'}{agentOnline && agentVersion ? ` v${agentVersion}` : ''}</span>
-            <Button type="button" variant="outline" size="sm" className="h-7 px-2" onClick={() => setOpenAgentHelp(true)}>Help</Button>
+            <TooltipProvider delayDuration={400}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button type="button" variant="outline" size="sm" className="h-7 px-2" onClick={() => setOpenAgentHelp(true)}>Help</Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>View instructions on how to start the automation agent</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           </div>
-          <div className="flex items-center gap-2 text-xs border rounded-md px-3 py-2 bg-muted/40">
-            <label htmlFor="force-submit" className="text-xs select-none">Allow Force Submit</label>
-            <Switch id="force-submit" checked={allowForce} onCheckedChange={setAllowForce} disabled={agentOnline === false} />
-          </div>
+          <TooltipProvider delayDuration={400}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="flex items-center gap-2 text-xs border rounded-md px-3 py-2 bg-muted/40 cursor-help">
+                  <label htmlFor="force-submit" className="text-xs select-none cursor-help">Force Submit</label>
+                  <Switch id="force-submit" checked={allowForce} onCheckedChange={setAllowForce} />
+                </div>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p className="max-w-xs">
+                  {agentOnline === false 
+                    ? "Toggle is enabled, but you must start the agent before submitting orders" 
+                    : "Allows you to submit even when line criteria isn't being met (bypasses validation warnings)"}
+                </p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
           {/* Import / Export / Clear Controls & Mode (merged into one box) */}
           <div className="flex items-center gap-2 text-xs border rounded-md px-3 py-2 bg-muted/40">
-            <Button
-              type="button"
-              size="sm"
-              onClick={handleImportClick}
-              className="h-7 bg-green-600 hover:bg-green-500 text-white px-3"
-            >
-              Import
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              onClick={handleExport}
-              className="h-7 bg-red-600 hover:bg-red-500 text-white px-3"
-            >
-              Export
-            </Button>
+            <TooltipProvider delayDuration={400}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={handleImportClick}
+                    className="h-7 bg-green-600 hover:bg-green-500 text-white px-3"
+                  >
+                    Import
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Import lines from a JSON file</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            <TooltipProvider delayDuration={400}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={handleExport}
+                    className="h-7 bg-red-600 hover:bg-red-500 text-white px-3"
+                  >
+                    Export
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Export all current lines to a JSON file</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
             <Dialog open={openClear} onOpenChange={setOpenClear}>
-              <DialogTrigger asChild>
-                <Button
-                  type="button"
-                  size="sm"
-                  className="h-7 px-3 bg-transparent text-red-600 border border-red-400 hover:bg-red-50 dark:hover:bg-red-950/30"
-                  variant="outline"
-                >
-                  Clear
-                </Button>
-              </DialogTrigger>
+              <TooltipProvider delayDuration={400}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <DialogTrigger asChild>
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="h-7 px-3 bg-transparent text-red-600 border border-red-400 hover:bg-red-50 dark:hover:bg-red-950/30"
+                        variant="outline"
+                      >
+                        Clear
+                      </Button>
+                    </DialogTrigger>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Remove all lines from the order form</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
               <DialogContent>
                 <DialogHeader>
                   <DialogTitle>Clear all lines?</DialogTitle>
@@ -484,34 +540,43 @@ export default function OrderPage() {
               </DialogContent>
             </Dialog>
             <div className="h-4 w-px bg-border mx-1"></div>
-            <div role="group" aria-label="Import mode" className="flex rounded-md overflow-hidden border bg-background">
-              <button
-                type="button"
-                aria-pressed={importMode === 'replace'}
-                onClick={() => setImportMode('replace')}
-                className={
-                  `px-3 h-7 inline-flex items-center justify-center font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 text-[11px] ` +
-                  (importMode === 'replace'
-                    ? 'bg-foreground text-background'
-                    : 'text-foreground/70 hover:text-foreground hover:bg-foreground/10')
-                }
-              >
-                Replace
-              </button>
-              <button
-                type="button"
-                aria-pressed={importMode === 'append'}
-                onClick={() => setImportMode('append')}
-                className={
-                  `px-3 h-7 inline-flex items-center justify-center font-medium border-l transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 text-[11px] ` +
-                  (importMode === 'append'
-                    ? 'bg-foreground text-background'
-                    : 'text-foreground/70 hover:text-foreground hover:bg-foreground/10')
-                }
-              >
-                Append
-              </button>
-            </div>
+            <TooltipProvider delayDuration={400}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div role="group" aria-label="Import mode" className="flex rounded-md overflow-hidden border bg-background">
+                    <button
+                      type="button"
+                      aria-pressed={importMode === 'replace'}
+                      onClick={() => setImportMode('replace')}
+                      className={
+                        `px-3 h-7 inline-flex items-center justify-center font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 text-[11px] ` +
+                        (importMode === 'replace'
+                          ? 'bg-foreground text-background'
+                          : 'text-foreground/70 hover:text-foreground hover:bg-foreground/10')
+                      }
+                    >
+                      Replace
+                    </button>
+                    <button
+                      type="button"
+                      aria-pressed={importMode === 'append'}
+                      onClick={() => setImportMode('append')}
+                      className={
+                        `px-3 h-7 inline-flex items-center justify-center font-medium border-l transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 text-[11px] ` +
+                        (importMode === 'append'
+                          ? 'bg-foreground text-background'
+                          : 'text-foreground/70 hover:text-foreground hover:bg-foreground/10')
+                      }
+                    >
+                      Append
+                    </button>
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Import mode: Replace clears existing lines, Append adds to them</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           </div>
           <div className="flex items-center gap-2 text-xs border rounded-md px-3 py-2 bg-muted/40">
             <span className="font-medium">Add:</span>
@@ -523,24 +588,33 @@ export default function OrderPage() {
               onChange={(e) => setMultiAddCount(Math.max(1, Math.min(200, Number(e.target.value) || 1)))}
               className="w-16 h-7 rounded border bg-background px-2 text-xs"
             />
-            <Button
-              type="button"
-              size="sm"
-              onClick={() => {
-                const count = Math.min(200, Math.max(1, multiAddCount));
-                const newLines = Array.from({ length: count }).map(() => ({
-                  id: newId(),
-                  kind: 'oligo',
-                  name: '',
-                  sequence: '',
-                  params: { scale: '25nm', purification: 'STD' },
-                }));
-                setValue('items', [...(itemsForPersist || []), ...newLines] as any, { shouldDirty: true });
-                toast.success(`Added ${count} line(s)`);
-              }}
-            >
-              Add
-            </Button>
+            <TooltipProvider delayDuration={400}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => {
+                      const count = Math.min(200, Math.max(1, multiAddCount));
+                      const newLines = Array.from({ length: count }).map(() => ({
+                        id: newId(),
+                        kind: 'oligo',
+                        name: '',
+                        sequence: '',
+                        params: { scale: '25nm', purification: 'STD' },
+                      }));
+                      setValue('items', [...(itemsForPersist || []), ...newLines] as any, { shouldDirty: true });
+                      toast.success(`Added ${count} line(s)`);
+                    }}
+                  >
+                    Add
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Add the specified number of empty lines to the order form</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           </div>
         </div>
       </header>
