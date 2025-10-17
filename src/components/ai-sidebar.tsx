@@ -172,7 +172,41 @@ Respond with ONLY the relevant extracted text, no explanations. If no relevant s
         fileContent ? `Attached study/document:\n${fileContent}` : ''
       ].filter(Boolean).join('\n\n');
 
-      const systemPrompt = `You are a DNA sequence research assistant. Your task is to find accurate DNA sequences for the specified organisms.
+      // Adjust system prompt based on whether we have file/context vs organism names
+      const hasFileOrContext = Boolean(fileContent || additionalText);
+      
+      const systemPrompt = hasFileOrContext
+        ? `You are a DNA sequence research assistant. Your task is to extract and format DNA sequences from provided documents or context.
+
+CRITICAL INSTRUCTIONS:
+1. Extract ANY DNA sequences found in the provided text/document
+2. If sequences are mentioned but not directly shown, search for them in databases (NCBI, GenBank, etc.)
+3. Format sequences properly with appropriate names based on context
+4. If NO sequences are found or mentioned, respond with: {"error": "No DNA sequences found in document"}
+5. NEVER make up or fabricate sequences
+6. Respond ONLY with valid JSON - no additional text, explanations, or markdown
+
+Response format (JSON only):
+{
+  "items": [
+    {
+      "kind": "oligo",
+      "name": "DescriptiveName_GeneName_Region",
+      "sequence": "ACGT...",
+      "params": {
+        "scale": "25nm",
+        "purification": "STD"
+      }
+    }
+  ]
+}
+
+Sequence constraints:
+- Only these characters: A, C, G, T, R, Y, S, W, K, M, B, D, H, V, N
+- Length: 15-60 nt (for 25nm scale)
+- Extract ALL sequences mentioned in the document
+- Use descriptive names based on document context`
+        : `You are a DNA sequence research assistant. Your task is to find accurate DNA sequences for the specified organisms.
 
 CRITICAL INSTRUCTIONS:
 1. Search for REAL, VERIFIED DNA sequences from scientific databases (NCBI, GenBank, etc.)
