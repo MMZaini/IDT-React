@@ -1,0 +1,95 @@
+{
+  // IDT Order JSON Template (import into /order page)
+  // IMPORTANT: This file uses JSON with comments (jsonc). Remove comments if a strict JSON parser is used elsewhere.
+  // The web app accepts this structure via the Import button on the Order page.
+  
+  // items: Array of order lines. At least 1 item is required.
+  "items": [
+    {
+      // kind: The item type. Currently, only "oligo" is enabled in the UI.
+      // Allowed values: "oligo" ("probe" exists in code but is disabled in the UI).
+      "kind": "oligo",
+
+      // name: Free-text identifier for the oligo. Required when sequence is provided.
+      // Constraints:
+      // - Non-empty (when sequence provided)
+      // - Shown in the UI as the "Name" field
+      "name": "Example_Oligo_1",
+
+      // sequence: DNA sequence using uppercase IUPAC characters only; spaces are removed automatically by the app.
+      // Accepted characters (IUPAC DNA, as enforced by the Order page UI):
+      //   A, C, G, T, R, Y, K, M, S, W, B, D, H, V, N   (Note: U is NOT accepted by the UI validator)
+      // Max length: 200 characters (app hard limit)
+      // Length constraints depend on the chosen scale (see params.scale below):
+      //   - 25nm: 15–60
+      //   - 100nm: 10–90
+      //   - 250nm: 5–100
+      //   - 1um: 5–100
+      //   - 2um: 5–100
+      //   - 5um: 5–100
+      //   - 10um: 5–100
+      //   - 4nmU (Ultramer™ 4 nmole): 45–200
+      //   - 20nmU (Ultramer™ 20 nmole): 45–200
+      //   - PU (PAGE Ultramer™): 60–200
+      //   - 25nmS (25 nmole Sameday): 15–45
+      // Notes:
+      // - Lowercase letters are uppercased by the UI
+      // - Any internal whitespace is stripped prior to validation and CSV generation
+      "sequence": "ACGTACGTACGTACGTA",
+
+      // params: Synthesis settings
+      "params": {
+        // scale: Synthesis scale. Must be one of:
+        //   "25nm" | "100nm" | "250nm" | "1um" | "2um" | "5um" | "10um" | "4nmU" | "20nmU" | "PU" | "25nmS"
+        // This choice determines allowed sequence length as documented above.
+        "scale": "25nm",
+
+        // purification: Purification method. Must be one of:
+        //   "STD" (Standard Desalting)
+        //   "PAGE"
+        //   "HPLC"
+        //   "IEHPLC" (Ion Exchange HPLC)
+        //   "RNASE" (RNase Free HPLC)
+        //   "DUALHPLC" (Dual HPLC)
+        //   "PAGEHPLC" (Dual PAGE & HPLC)
+        "purification": "STD"
+      }
+    }
+
+    // Additional items can be added to this array. Example entries follow:
+
+    ,{
+      "kind": "oligo",
+      "name": "Short_At_Least_5",
+      // With scale=1um, 5–100 nt is valid
+      "sequence": "ACGTA",
+      "params": { "scale": "1um", "purification": "HPLC" }
+    }
+    ,{
+      "kind": "oligo",
+      "name": "Long_Ultramer",
+      // With scale=PU (PAGE Ultramer™), 60–200 nt is valid
+      "sequence": "ACGTAACGTAACGTAACGTAACGTAACGTAACGTAACGTAACGTAACGTAACGTAACGTAACGTAACGTAACGTA",
+      "params": { "scale": "PU", "purification": "RNASE" }
+    }
+  ]
+
+  // PROBE FORMAT (Disabled in UI by default)
+  // ------------------------------------------------------------
+  // The app code supports a "probe" kind with additional parameters, but the UI currently disables selecting probes.
+  // If enabled in the future, a probe item would look like this:
+  // {
+  //   "kind": "probe",
+  //   "name": "Probe_Example",
+  //   "sequence": "ACGTACGTACGTACGT",
+  //   "params": {
+  //     "scale": "25nm",            // same allowed values and length constraints as oligos
+  //     "purification": "HPLC",     // same allowed values as oligos
+  //     "fivePrime": "AminoC6",     // one of: "None", "Phos", "AminoC6"
+  //     "threePrime": "AminoC7",    // one of: "None", "Phos", "AminoC7"
+  //     "dye": "FAM",               // one of: "None", "FAM", "HEX", "Cy5"
+  //     "quencher": "BHQ1"          // one of: "None", "BHQ1", "BHQ2", "IABkFQ"
+  //   }
+  // }
+  // Note: When probes are enabled, sequence character rules remain IUPAC DNA and length rules still depend on scale.
+}

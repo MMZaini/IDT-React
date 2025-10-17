@@ -62,7 +62,6 @@ export async function POST(request: Request) {
     const result = await runScript(scriptPath, b64);
     return NextResponse.json({ ok: result.code === 0, code: result.code, output: result.output });
   } catch (err) {
-    // eslint-disable-next-line @typescript-eslint/no-base-to-string
     return NextResponse.json({ ok: false, error: String(err) }, { status: 500 });
   }
 }

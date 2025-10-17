@@ -17,6 +17,8 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { toast } from "sonner";
 import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose } from "@/components/ui/dialog";
 import Switch from "@/components/ui/switch";
+import { AiSidebar } from "@/components/ai-sidebar";
+import { MobileWarning } from "@/components/mobile-warning";
 // submission is intentionally a no-op for UI-only demo; no backend or clipboard side-effects
 import { kindOptions, scaleOptions, purificationOptions, fivePrimeOptions, threePrimeOptions, dyeOptions, quencherOptions, scaleRanges } from "@/lib/params";
 import { LineItem, OrderPayloadSchema } from "@/lib/schema";
@@ -385,8 +387,23 @@ export default function OrderPage() {
     // Otherwise, let the existing inline errors + toast guide the user (we already disable focus)
   };
 
+  // Handle AI import
+  function handleAiImport(items: any[], mode: 'replace' | 'append') {
+    if (mode === 'replace') {
+      setValue('items', items, { shouldDirty: true });
+    } else {
+      const current = form.getValues('items') || [];
+      setValue('items', [...current, ...items], { shouldDirty: true });
+    }
+  }
+
   return (
-    <div className="mx-auto max-w-6xl p-6 space-y-6">
+    <>
+      <MobileWarning />
+      <div className="flex min-h-screen">
+        <AiSidebar onImport={handleAiImport} />
+        <div className="flex-1 overflow-y-auto">
+          <div className="mx-auto max-w-6xl p-6 space-y-6">
       {/* Debug Console */}
         {/* Debug Console removed */}
       <header className="flex items-center justify-between">
@@ -644,7 +661,7 @@ export default function OrderPage() {
                         return <span className="text-xs text-muted-foreground">Empty</span>;
                       }
                       if (res.valid) {
-                        return <span className="text-xs text-muted-foreground">\u2713 Valid</span>;
+                        return <span className="text-xs text-muted-foreground">Valid</span>;
                       }
                       if (res.reason === 'name_or_sequence_missing') {
                         return <span className="text-xs text-muted-foreground">Missing name/sequence</span>;
@@ -737,7 +754,8 @@ export default function OrderPage() {
                       <Textarea
                         {...field}
                         placeholder="ACGT..."
-                        className="resize-none overflow-hidden transition-all duration-300 ease-in-out min-h-[40px]"
+                        className="resize-none overflow-hidden min-h-[40px]"
+                        style={{ transition: 'height 0.2s cubic-bezier(0.4, 0, 0.2, 1)' }}
                         rows={1}
                         onFocus={(e) => {
                           // Expand based on content, minimum 80px when focused
@@ -749,11 +767,8 @@ export default function OrderPage() {
                           const capitalized = e.currentTarget.value.replace(/[a-z]/g, (char) => char.toUpperCase());
                           field.onChange(capitalized);
                           
-                          // Shrink back to single line
-                          const target = e.currentTarget;
-                          setTimeout(() => {
-                            target.style.height = '40px';
-                          }, 0);
+                          // Shrink back to single line with smooth animation
+                          e.currentTarget.style.height = '40px';
                         }}
                         onInput={(e) => {
                           // Auto-expand as user types, minimum 80px when focused
@@ -893,6 +908,9 @@ export default function OrderPage() {
           </div>
         </div>
       </form>
+        </div>
+      </div>
     </div>
+    </>
   );
 }
