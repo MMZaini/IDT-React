@@ -9,7 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Settings, Sparkles, ChevronRight, ChevronLeft, Plus, X, Upload, RotateCcw, Info } from "lucide-react";
+import { Settings, Sparkles, ChevronRight, ChevronLeft, Plus, X, Upload, RotateCcw, Info, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 interface AiSidebarProps {
@@ -324,6 +324,30 @@ Analyze the provided information and extract or identify relevant DNA sequences.
     }
   }
 
+  function deleteHistoryItem(id: string, e: React.MouseEvent) {
+    e.stopPropagation(); // Prevent triggering the parent button click
+    setHistory(prev => {
+      const newHistory = prev.filter(entry => entry.id !== id);
+      // Update localStorage
+      if (typeof window !== 'undefined') {
+        if (newHistory.length > 0) {
+          localStorage.setItem('idt-ai-history', JSON.stringify(newHistory));
+        } else {
+          localStorage.removeItem('idt-ai-history');
+        }
+      }
+      return newHistory;
+    });
+    
+    // If the deleted item was selected, close the dialog
+    if (selectedHistoryId === id) {
+      setSelectedHistoryId(null);
+      setShowOutput(false);
+    }
+    
+    toast.success('History item deleted');
+  }
+
   return (
     <>
       <div 
@@ -544,28 +568,39 @@ Analyze the provided information and extract or identify relevant DNA sequences.
                 <Label className="text-xs font-semibold mb-2 block">History</Label>
                 <div className="space-y-2 max-h-64 overflow-y-auto">
                   {history.map((entry) => (
-                    <button
+                    <div
                       key={entry.id}
-                      onClick={() => {
-                        setSelectedHistoryId(entry.id);
-                        setShowOutput(true);
-                      }}
-                      className={`w-full text-left p-2 rounded border text-xs hover:bg-muted/50 transition-colors ${
+                      className={`relative group rounded border text-xs transition-colors ${
                         selectedHistoryId === entry.id ? 'bg-muted border-primary' : 'bg-background'
                       }`}
                     >
-                      <div className="flex items-center justify-between mb-1">
-                        <span className={`font-medium ${entry.success ? 'text-green-600' : 'text-red-600'}`}>
-                          {entry.success ? '✓' : '✗'} {entry.type}
-                        </span>
-                        <span className="text-muted-foreground">
-                          {new Date(entry.timestamp).toLocaleTimeString()}
-                        </span>
-                      </div>
-                      <div className="text-muted-foreground truncate">
-                        {entry.organisms.join(', ')}
-                      </div>
-                    </button>
+                      <button
+                        onClick={() => {
+                          setSelectedHistoryId(entry.id);
+                          setShowOutput(true);
+                        }}
+                        className="w-full text-left p-2 hover:bg-muted/50 transition-colors rounded"
+                      >
+                        <div className="flex items-center justify-between mb-1">
+                          <span className={`font-medium ${entry.success ? 'text-green-600' : 'text-red-600'}`}>
+                            {entry.success ? '✓' : '✗'} {entry.type}
+                          </span>
+                          <span className="text-muted-foreground">
+                            {new Date(entry.timestamp).toLocaleTimeString()}
+                          </span>
+                        </div>
+                        <div className="text-muted-foreground truncate">
+                          {entry.organisms.join(', ')}
+                        </div>
+                      </button>
+                      <button
+                        onClick={(e) => deleteHistoryItem(entry.id, e)}
+                        className="absolute top-1 right-1 p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-destructive/10 hover:text-destructive transition-all"
+                        title="Delete history item"
+                      >
+                        <Trash2 className="size-3" />
+                      </button>
+                    </div>
                   ))}
                 </div>
               </div>
