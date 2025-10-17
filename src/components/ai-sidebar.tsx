@@ -9,7 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Settings, Sparkles, ChevronRight, ChevronLeft, Plus, X, Upload, RotateCcw, Info, Trash2 } from "lucide-react";
+import { Settings, Sparkles, ChevronRight, ChevronLeft, Plus, X, Upload, RotateCcw, Info, Trash2, Download, FileUp } from "lucide-react";
 import { toast } from "sonner";
 
 interface AiSidebarProps {
@@ -43,6 +43,7 @@ export function AiSidebar({ onImport }: AiSidebarProps) {
   const [history, setHistory] = React.useState<HistoryEntry[]>([]);
   const [selectedHistoryId, setSelectedHistoryId] = React.useState<string | null>(null);
   const [showOutput, setShowOutput] = React.useState(false);
+  const [showClearConfirm, setShowClearConfirm] = React.useState(false);
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
 
   // Load from localStorage
@@ -101,24 +102,31 @@ export function AiSidebar({ onImport }: AiSidebarProps) {
           
           try {
             // First pass: Extract only DNA/sequence-relevant sections
-            const extractionPrompt = `You are analyzing a scientific document. Extract ONLY the sections that contain or discuss DNA sequences, oligonucleotides, primers, or genetic information. 
+            const extractionPrompt = `Extract ALL DNA sequences and related context from this document.
 
-Remove all irrelevant sections like:
-- References/bibliography
-- Author information
-- Abstract (unless it contains sequences)
-- Methods (unless describing sequences)
+WHAT TO EXTRACT:
+1. Any DNA/RNA sequences (strings of A, C, G, T, U letters)
+2. Primer sequences (forward/reverse)
+3. Oligonucleotide sequences
+4. Probe sequences
+5. Gene names with their sequences
+6. Tables containing sequences
+7. Supplementary sequence data
+8. GenBank/NCBI accession numbers with sequences
+9. Sequence descriptions and labels
+
+WHAT TO REMOVE:
+- Author names and affiliations
+- References/citations
+- Methodology without sequences
+- General discussion
 - Acknowledgments
-- General discussion without sequences
+- Copyright notices
 
-Keep:
-- Sequence data (ACGT strings)
-- Tables with sequences
-- Primers/oligos descriptions
-- Gene names and their sequences
-- Any NCBI/GenBank references
+BE VERY LIBERAL - if there's ANY mention of sequences, DNA, primers, or oligonucleotides, include that entire section.
 
-Respond with ONLY the relevant extracted text, no explanations. If no relevant sections found, respond with "NO_SEQUENCES_FOUND".`;
+OUTPUT FORMAT:
+Return ONLY the extracted text containing sequences and their context. Include section headers if they help identify sequences. If absolutely no sequences found anywhere, respond with "NO_SEQUENCES_FOUND".`;
 
             const extractionResponse = await fetch('https://api.openai.com/v1/chat/completions', {
               method: 'POST',
@@ -130,10 +138,10 @@ Respond with ONLY the relevant extracted text, no explanations. If no relevant s
                 model: 'gpt-4o-mini',
                 messages: [
                   { role: 'system', content: extractionPrompt },
-                  { role: 'user', content: rawContent.substring(0, 100000) } // Use first 100k chars for extraction
+                  { role: 'user', content: rawContent.substring(0, 150000) } // Use more content - up to 150k chars
                 ],
                 temperature: 0.1,
-                max_tokens: 8000
+                max_tokens: 12000 // Increased token limit for extraction
               })
             });
 
@@ -141,12 +149,15 @@ Respond with ONLY the relevant extracted text, no explanations. If no relevant s
               const extractionData = await extractionResponse.json();
               const extracted = extractionData.choices[0]?.message?.content || '';
               
-              if (extracted && extracted !== 'NO_SEQUENCES_FOUND' && extracted.length > 100) {
+              if (extracted && extracted !== 'NO_SEQUENCES_FOUND' && extracted.trim().length > 50) {
                 fileContent = extracted;
-                toast.success('Relevant sections extracted from large file');
+                const percentage = Math.round(extracted.length / rawContent.length * 100);
+                toast.success(`Extracted sequence sections (${percentage}% of file, ~${Math.round(extracted.length / 1000)}KB)`);
               } else {
-                fileContent = rawContent.substring(0, maxChars) + '\n\n[... File truncated. Consider uploading a smaller file or text with only relevant sections ...]';
-                toast.warning('Could not extract sequences - using first portion of file');
+                // Use larger truncation since we're working with file content
+                const largerMaxChars = 80000; // More generous for direct file processing
+                fileContent = rawContent.substring(0, largerMaxChars);
+                toast.warning(`Extraction found no clear sequences - using first ${Math.round(largerMaxChars / 1000)}KB of file. AI will attempt to find sequences in this portion.`);
               }
             } else {
               // Fallback to simple truncation
@@ -382,6 +393,87 @@ Analyze the provided information and extract or identify relevant DNA sequences.
     toast.success('History item deleted');
   }
 
+  function exportHistory() {
+    if (history.length === 0) {
+      toast.error('No history to export');
+      return;
+    }
+
+    const dataStr = JSON.stringify(history, null, 2);
+    const dataBlob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(dataBlob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `idt-ai-history-${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    toast.success('History exported successfully');
+  }
+
+  function importHistory(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const imported = JSON.parse(event.target?.result as string);
+        if (!Array.isArray(imported)) {
+          toast.error('Invalid history file format');
+          return;
+        }
+
+        // Validate structure
+        const isValid = imported.every(entry => 
+          entry.id && entry.timestamp && entry.type && Array.isArray(entry.organisms)
+        );
+
+        if (!isValid) {
+          toast.error('Invalid history file structure');
+          return;
+        }
+
+        // Merge with existing history, avoiding duplicates by ID
+        setHistory(prev => {
+          const existingIds = new Set(prev.map(e => e.id));
+          const newEntries = imported.filter(e => !existingIds.has(e.id));
+          const merged = [...prev, ...newEntries]
+            .sort((a, b) => b.timestamp - a.timestamp)
+            .slice(0, 50);
+          
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('idt-ai-history', JSON.stringify(merged));
+          }
+          
+          return merged;
+        });
+
+        toast.success(`Imported ${imported.length} history item(s)`);
+      } catch (error) {
+        toast.error('Failed to import history file');
+      }
+    };
+    reader.readAsText(file);
+    
+    // Reset input so same file can be imported again
+    e.target.value = '';
+  }
+
+  function clearAllHistory() {
+    setHistory([]);
+    setSelectedHistoryId(null);
+    setShowOutput(false);
+    setShowClearConfirm(false);
+    
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('idt-ai-history');
+    }
+    
+    toast.success('History cleared');
+  }
+
   return (
     <>
       <div 
@@ -599,7 +691,69 @@ Analyze the provided information and extract or identify relevant DNA sequences.
 
             {history.length > 0 && (
               <div className="pt-4 border-t">
-                <Label className="text-xs font-semibold mb-2 block">History</Label>
+                <div className="flex items-center justify-between mb-2">
+                  <Label className="text-xs font-semibold">History</Label>
+                  <div className="flex gap-1">
+                    <TooltipProvider delayDuration={200}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-6"
+                            onClick={exportHistory}
+                          >
+                            <Download className="size-3" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent side="top">
+                          <p className="text-xs">Export history</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                    <TooltipProvider delayDuration={200}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-6"
+                            onClick={() => document.getElementById('history-import')?.click()}
+                          >
+                            <FileUp className="size-3" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent side="top">
+                          <p className="text-xs">Import history</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                    <TooltipProvider delayDuration={200}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-6 hover:text-destructive"
+                            onClick={() => setShowClearConfirm(true)}
+                          >
+                            <Trash2 className="size-3" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent side="top">
+                          <p className="text-xs">Clear all history</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                    <input
+                      id="history-import"
+                      type="file"
+                      accept=".json"
+                      className="hidden"
+                      onChange={importHistory}
+                    />
+                  </div>
+                </div>
                 <div className="space-y-2 max-h-64 overflow-y-auto">
                   {history.map((entry) => (
                     <div
@@ -613,18 +767,18 @@ Analyze the provided information and extract or identify relevant DNA sequences.
                           setSelectedHistoryId(entry.id);
                           setShowOutput(true);
                         }}
-                        className="w-full text-left p-2 hover:bg-muted/50 transition-colors rounded"
+                        className="w-full text-left p-2 pr-8 hover:bg-muted/50 transition-colors rounded"
                       >
                         <div className="flex items-center justify-between mb-1">
                           <span className={`font-medium ${entry.success ? 'text-green-600' : 'text-red-600'}`}>
                             {entry.success ? '✓' : '✗'} {entry.type}
                           </span>
-                          <span className="text-muted-foreground">
-                            {new Date(entry.timestamp).toLocaleTimeString()}
+                          <span className="text-muted-foreground text-[10px]">
+                            {new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                           </span>
                         </div>
                         <div className="text-muted-foreground truncate">
-                          {entry.organisms.join(', ')}
+                          {entry.organisms.length > 0 ? entry.organisms.join(', ') : 'From file/context'}
                         </div>
                       </button>
                       <button
@@ -709,6 +863,30 @@ Analyze the provided information and extract or identify relevant DNA sequences.
               }}
             >
               <RotateCcw className="size-4 mr-2" /> Try Again
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showClearConfirm} onOpenChange={setShowClearConfirm}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Clear All History?</DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <p className="text-sm text-muted-foreground">
+              This will permanently delete all {history.length} history item(s). This action cannot be undone.
+            </p>
+            <p className="text-sm text-muted-foreground mt-2">
+              Consider exporting your history first if you want to keep a backup.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowClearConfirm(false)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={clearAllHistory}>
+              Clear All History
             </Button>
           </DialogFooter>
         </DialogContent>
