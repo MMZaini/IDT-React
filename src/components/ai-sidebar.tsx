@@ -1292,6 +1292,16 @@ Provide verified sequences from scientific databases in the JSON format specifie
                   toast.info('Form populated with previous parameters');
                 }
               }}
+              disabled={(() => {
+                const selectedEntry = history.find(h => h.id === selectedHistoryId);
+                // Disable if entry has no organisms and no additional text (just uploaded file)
+                return selectedEntry ? (selectedEntry.organisms.length === 0 && !selectedEntry.additionalText) : true;
+              })()}
+              className={(() => {
+                const selectedEntry = history.find(h => h.id === selectedHistoryId);
+                const isDisabled = selectedEntry ? (selectedEntry.organisms.length === 0 && !selectedEntry.additionalText) : true;
+                return isDisabled ? 'opacity-50 cursor-not-allowed' : '';
+              })()}
             >
               <RotateCcw className="size-4 mr-2" /> Try Again
             </Button>
