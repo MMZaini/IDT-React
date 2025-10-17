@@ -1,6 +1,6 @@
 'use client';
 
-import { Smartphone, Github, Monitor } from 'lucide-react';
+import { Github, Monitor } from 'lucide-react';
 import { Button } from './ui/button';
 
 export function MobileWarning() {

@@ -1,6 +1,6 @@
 # IDT React
 
-Automated, improved bulk ordering system for DNA oligonucleotides and Probes from Integrated DNA Technologies (IDT). Web UI for order creation + local desktop agent for browser automation.
+Automated, improved bulk ordering system for DNA oligonucleotides and Probes from Integrated DNA Technologies (IDT). Features a modern web interface with AI-powered sequence generation and a local automation agent for seamless order submission.
 
 ## Quick Start
 
@@ -21,7 +21,38 @@ Automated, improved bulk ordering system for DNA oligonucleotides and Probes fro
 2. **Run** `idt-agent.exe` (Windows) or `./idt-agent` (macOS)
 3. **Visit** the web UI and start ordering
 
-### For Developers
+## Features
+
+### Smart Order Management
+- **Bulk Ordering** - Add up to 200 lines at once with automatic validation
+- **Import/Export** - Save and load orders in JSON format for easy reuse
+- **Force Submit** - Override validation warnings when needed (agent must be online)
+- **Live Validation** - Instant feedback on sequence length, scale compatibility, and purification requirements
+
+### AI-Powered Sequence Generation
+- **Intelligent Extraction** - Upload documents and automatically extract DNA sequences
+- **Organism Detection** - Finds sequences for specific organisms from research papers
+- **Expanded Search** - Optional deep search mode to find as many sequences as possible
+- **Smart Parameters** - Automatically selects appropriate scale and purification based on sequence length
+
+### User-Friendly Interface
+- **Helpful Tooltips** - Hover over any button to see what it does
+- **Visual Feedback** - Clear indicators for agent status, validation errors, and submission progress
+- **Responsive Design** - Works seamlessly on desktop browsers
+- **Dark Mode** - Built-in dark theme support
+
+### Browser Automation
+- **One-Click Submission** - Agent handles the entire IDT website interaction
+- **Persistent Sessions** - Maintains login state across orders
+- **Automatic Focus** - Browser window appears in foreground when automation starts
+
+## Usage Tips
+
+- **First Time Setup**: When you first visit the AI sidebar, you'll see a welcome guide
+- **API Key**: Add your OpenAI API key in the AI sidebar to enable sequence generation
+- **Bug Reports**: Found an issue? Email us at zainimahdi@outlook.com
+
+## For Developers
 
 ```bash
 npm install
@@ -29,14 +60,7 @@ npm run dev           # Start web UI at http://localhost:3000
 npm run agent         # Run agent locally for testing
 ```
 
-## Project Structure
-
-- `src/app/` - Next.js web UI for order creation
-- `scripts/local-agent.js` - HTTP server (port 4599) that runs Selenium automation
-- `scripts/runner-core-selenium.js` - Browser automation logic for IDT website
-
-## Build Agent
-
+**Build Agent:**
 ```bash
 # Windows
 npm run pkg:agent:win:with-chromedriver
@@ -73,38 +97,6 @@ MMZaini/idt-react  https://slsa.dev/provenance/v1  .github/workflows/release-age
 - File was built by official GitHub Actions workflow
 - File hasn't been tampered with since build
 - Build is traceable to exact source code commit
-
-## Releases
-
-### Automatic Updates
-
-Push to `main` automatically updates the release when agent files change:
-
-```bash
-git push origin main
-```
-
-Updates the `latest` tag with new builds. Downloads always get the most recent version.
-
-### What Triggers Builds
-
-Workflows only run when these files change:
-- `scripts/*.js` - Agent source and build scripts
-- `package.json`, `package-lock.json` - Dependencies
-- `.github/workflows/*.yml` - Workflow files
-
-Web UI changes (Next.js, React, CSS) don't trigger agent builds.
-
-## Workflows
-
-## Workflow
-
-**Release Agent with Provenance** - `release-agent.yml`
-- Automatically creates/updates the `latest` release when agent files change
-- Includes cryptographic build attestations (SLSA provenance)
-- Triggers on push to main, git tags, or manual dispatch
-- Builds for Windows and macOS with smoke tests
-- Uses stable filenames (`idt-agent-windows.zip`, `idt-agent-macos.zip`)
 
 ## Deployment
 

@@ -1320,7 +1320,7 @@ Provide verified sequences from scientific databases in the JSON format specifie
               </div>
               <div>
                 <DialogTitle className="text-xl">Welcome to AI Sequence Generator!</DialogTitle>
-                <p className="text-sm text-muted-foreground mt-1">Let's get you started 🧬</p>
+                <p className="text-sm text-muted-foreground mt-1">Let&apos;s get you started 🧬</p>
               </div>
             </div>
           </DialogHeader>
@@ -1332,7 +1332,7 @@ Provide verified sequences from scientific databases in the JSON format specifie
                 <div className="space-y-2 text-sm">
                   <p className="font-semibold text-blue-900 dark:text-blue-100">Important Notice</p>
                   <p className="text-blue-800 dark:text-blue-200">
-                    This AI tool generates DNA sequences based on your input. While powerful, it's not perfect:
+                    This AI tool generates DNA sequences based on your input. While powerful, it&apos;s not perfect:
                   </p>
                 </div>
               </div>
@@ -1358,7 +1358,7 @@ Provide verified sequences from scientific databases in the JSON format specifie
                 <div>
                   <p className="font-semibold mb-1">Try Multiple Times</p>
                   <p className="text-muted-foreground">
-                    If results aren't quite right, try rephrasing your request or running it again. Each generation can vary slightly.
+                    If results aren&apos;t quite right, try rephrasing your request or running it again. Each generation can vary slightly.
                   </p>
                 </div>
               </div>
@@ -1379,7 +1379,7 @@ Provide verified sequences from scientific databases in the JSON format specifie
             <div className="p-3 rounded-lg bg-muted/50 border">
               <p className="text-xs text-muted-foreground">
                 <strong>Pro tip:</strong> For best results, provide organism names, upload research papers (PDFs), 
-                or add additional context about what you're looking for. The more information you provide, the better the results!
+                or add additional context about what you&apos;re looking for. The more information you provide, the better the results!
               </p>
             </div>
           </div>
