@@ -784,11 +784,7 @@ Provide verified sequences from scientific databases in the JSON format specifie
                 transition: 'opacity 0.3s ease-in-out 0.2s'
               }}
             >
-              <div className="flex items-center gap-2 whitespace-nowrap">
-                <div className="relative">
-                  <Sparkles className="size-5 text-purple-600 animate-pulse" style={{ animationDuration: '3s' }} />
-                  <div className="absolute inset-0 bg-purple-600/20 blur-md rounded-full animate-pulse" style={{ animationDuration: '3s' }} />
-                </div>
+              <div className="flex items-center gap-2 whitespace-nowrap pl-2">
                 <span className="font-semibold bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent">
                   Generate Sequences
                 </span>
@@ -823,7 +819,7 @@ Provide verified sequences from scientific databases in the JSON format specifie
                         <Settings className="size-4" />
                       </Button>
                     </TooltipTrigger>
-                    <TooltipContent side="bottom">
+                    <TooltipContent side="left">
                       <p className="text-xs">OpenAI API settings</p>
                     </TooltipContent>
                   </Tooltip>
@@ -840,7 +836,7 @@ Provide verified sequences from scientific databases in the JSON format specifie
                         <ChevronLeft className="size-4" />
                       </Button>
                     </TooltipTrigger>
-                    <TooltipContent side="bottom">
+                    <TooltipContent side="left">
                       <p className="text-xs">Close sidebar</p>
                     </TooltipContent>
                   </Tooltip>
@@ -1130,7 +1126,7 @@ Provide verified sequences from scientific databases in the JSON format specifie
             </div>
 
             <Button 
-              className="w-full bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white shadow-md hover:shadow-lg transition-all duration-300 hover:scale-[1.02] disabled:opacity-50 disabled:scale-100" 
+              className="w-full bg-black hover:bg-gray-900 dark:bg-gray-900 dark:hover:bg-gray-800 text-white shadow-md hover:shadow-lg transition-all duration-300 hover:scale-[1.02] disabled:opacity-50 disabled:scale-100" 
               onClick={generateSequences} 
               disabled={loading || !apiKey}
             >
