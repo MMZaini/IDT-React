@@ -8,7 +8,7 @@ Automated, improved bulk ordering system for DNA oligonucleotides and Probes fro
 
 **Download the latest agent:**
 
-
+<div align="center">
 
 [![Download for Windows](https://img.shields.io/badge/Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/MMZaini/idt-react/releases/latest/download/idt-agent-windows.zip)
 [![Download for macOS](https://img.shields.io/badge/macOS-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/MMZaini/idt-react/releases/latest/download/idt-agent-macos.zip)

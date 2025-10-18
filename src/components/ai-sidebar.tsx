@@ -129,6 +129,7 @@ export function AiSidebar({ onImport }: AiSidebarProps) {
   const [importMode, setImportMode] = React.useState<'replace' | 'append'>('replace');
   const [organisms, setOrganisms] = React.useState<string[]>(['']);
   const [additionalText, setAdditionalText] = React.useState('');
+  const [additionalTextFocused, setAdditionalTextFocused] = React.useState(false);
   const [additionalFile, setAdditionalFile] = React.useState<File | null>(null);
   const [loading, setLoading] = React.useState(false);
   const [history, setHistory] = React.useState<HistoryEntry[]>([]);
@@ -199,6 +200,50 @@ export function AiSidebar({ onImport }: AiSidebarProps) {
       localStorage.setItem('idt-ai-history', JSON.stringify(history));
     }
   }, [history]);
+
+  // Load sidebar state and form data from localStorage on mount
+  React.useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const savedSidebarOpen = localStorage.getItem('idt-ai-sidebar-open');
+      const savedFormData = localStorage.getItem('idt-ai-form-data');
+      
+      if (savedSidebarOpen === 'true') {
+        setIsOpen(true);
+      }
+      
+      if (savedFormData) {
+        try {
+          const formData = JSON.parse(savedFormData);
+          if (formData.type) setType(formData.type);
+          if (formData.organisms) setOrganisms(formData.organisms);
+          if (formData.additionalText) setAdditionalText(formData.additionalText);
+          if (formData.importMode) setImportMode(formData.importMode);
+          if (formData.expandedSearch !== undefined) setExpandedSearch(formData.expandedSearch);
+        } catch {}
+      }
+    }
+  }, []);
+
+  // Save sidebar open state to localStorage
+  React.useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('idt-ai-sidebar-open', isOpen.toString());
+    }
+  }, [isOpen]);
+
+  // Save form data to localStorage whenever it changes
+  React.useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const formData = {
+        type,
+        organisms,
+        additionalText,
+        importMode,
+        expandedSearch
+      };
+      localStorage.setItem('idt-ai-form-data', JSON.stringify(formData));
+    }
+  }, [type, organisms, additionalText, importMode, expandedSearch]);
 
   async function generateSequences() {
     if (!apiKey) {
@@ -714,7 +759,7 @@ Provide verified sequences from scientific databases in the JSON format specifie
   return (
     <>
       <div 
-        className={`${isOpen ? 'w-96' : 'w-12'} border-r bg-gradient-to-b from-purple-50/50 via-transparent to-transparent dark:from-purple-950/20 flex flex-col relative`}
+        className={`${isOpen ? 'w-[420px]' : 'w-12'} border-r bg-gradient-to-b from-purple-50/50 via-transparent to-transparent dark:from-purple-950/20 flex flex-col relative`}
         style={{ transition: 'width 0.4s cubic-bezier(0.4, 0, 0.2, 1)' }}
       >
         <div className="p-2 border-b bg-background/80 backdrop-blur-sm flex items-center justify-between">
@@ -806,7 +851,7 @@ Provide verified sequences from scientific databases in the JSON format specifie
 
         {isOpen && (
           <div 
-            className="flex-1 overflow-y-auto p-4 space-y-4 animate-in fade-in slide-in-from-left-4"
+            className="flex-1 overflow-y-auto px-6 py-4 space-y-4 animate-in fade-in slide-in-from-left-4"
             style={{ 
               animationDuration: '0.3s',
               animationTimingFunction: 'cubic-bezier(0.4, 0, 0.2, 1)'
@@ -894,10 +939,10 @@ Provide verified sequences from scientific databases in the JSON format specifie
                     type="button"
                     aria-pressed={importMode === 'replace'}
                     onClick={() => setImportMode('replace')}
-                    className={`flex-1 px-2 py-1.5 text-xs font-medium transition-all duration-200 ${
+                    className={`flex-1 px-2 py-1.5 text-xs font-medium transition-all duration-300 ease-in-out ${
                       importMode === 'replace'
-                        ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-md scale-105'
-                        : 'bg-background hover:bg-accent/50'
+                        ? 'bg-primary text-primary-foreground'
+                        : 'bg-background hover:bg-accent/50 text-foreground'
                     }`}
                   >
                     Replace
@@ -906,10 +951,10 @@ Provide verified sequences from scientific databases in the JSON format specifie
                     type="button"
                     aria-pressed={importMode === 'append'}
                     onClick={() => setImportMode('append')}
-                    className={`flex-1 px-2 py-1.5 text-xs font-medium transition-all duration-200 ${
+                    className={`flex-1 px-2 py-1.5 text-xs font-medium transition-all duration-300 ease-in-out ${
                       importMode === 'append'
-                        ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-md scale-105'
-                        : 'bg-background hover:bg-accent/50'
+                        ? 'bg-primary text-primary-foreground'
+                        : 'bg-background hover:bg-accent/50 text-foreground'
                     }`}
                   >
                     Append
@@ -999,7 +1044,13 @@ Provide verified sequences from scientific databases in the JSON format specifie
                 placeholder="Add notes, study details, or specific requirements..."
                 value={additionalText}
                 onChange={(e) => setAdditionalText(e.target.value)}
-                className="text-xs min-h-[80px] resize-none transition-all focus:ring-2 focus:ring-purple-500/20"
+                onFocus={() => setAdditionalTextFocused(true)}
+                onBlur={() => setAdditionalTextFocused(false)}
+                className="text-xs resize-none transition-all duration-300 ease-in-out focus:ring-2 focus:ring-purple-500/20"
+                style={{
+                  minHeight: additionalTextFocused ? '140px' : '80px',
+                  height: additionalTextFocused ? '140px' : '80px'
+                }}
               />
             </div>
 
