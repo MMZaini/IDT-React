@@ -124,6 +124,7 @@ async function extractTextFromPDF(file: File): Promise<string> {
 export function AiSidebar({ onImport }: AiSidebarProps) {
   const [isOpen, setIsOpen] = React.useState(false);
   const [settingsOpen, setSettingsOpen] = React.useState(false);
+  const [settingsClosing, setSettingsClosing] = React.useState(false);
   const [apiKey, setApiKey] = React.useState('');
   const [type, setType] = React.useState<'oligo' | 'probe'>('oligo');
   const [importMode, setImportMode] = React.useState<'replace' | 'append'>('replace');
@@ -760,6 +761,14 @@ Provide verified sequences from scientific databases in the JSON format specifie
     toast.success('History cleared');
   }
 
+  function handleCloseSettings() {
+    setSettingsClosing(true);
+    setTimeout(() => {
+      setSettingsOpen(false);
+      setSettingsClosing(false);
+    }, 300); // Match animation duration
+  }
+
   return (
     <>
       <div 
@@ -868,14 +877,25 @@ Provide verified sequences from scientific databases in the JSON format specifie
             }}
           >
             {settingsOpen && (
-              <div className="p-3 border rounded-lg bg-gradient-to-br from-blue-50/50 to-purple-50/50 dark:from-blue-950/20 dark:to-purple-950/20 space-y-3 animate-in fade-in slide-in-from-top-2 duration-300">
+              <div 
+                className={`p-3 border rounded-lg bg-gradient-to-br from-blue-50/50 to-purple-50/50 dark:from-blue-950/20 dark:to-purple-950/20 space-y-3 ${
+                  settingsClosing 
+                    ? 'animate-out fade-out slide-out-to-top-2 duration-300' 
+                    : 'animate-in fade-in slide-in-from-top-2 duration-300'
+                }`}
+              >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Settings className="size-4 text-blue-600" />
                     <Label className="text-sm font-semibold">Settings</Label>
                   </div>
-                  <Button variant="ghost" size="icon" className="size-6 hover:bg-destructive/10 transition-colors" onClick={() => setSettingsOpen(false)}>
-                    <X className="size-3" />
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    className="h-6 px-2 text-xs hover:bg-muted transition-colors" 
+                    onClick={handleCloseSettings}
+                  >
+                    Close
                   </Button>
                 </div>
                 <div>
@@ -1056,10 +1076,13 @@ Provide verified sequences from scientific databases in the JSON format specifie
                 onChange={(e) => setAdditionalText(e.target.value)}
                 onFocus={() => setAdditionalTextFocused(true)}
                 onBlur={() => setAdditionalTextFocused(false)}
-                className="text-xs resize-none transition-all duration-300 ease-in-out focus:ring-2 focus:ring-purple-500/20"
+                className={`text-xs transition-all duration-300 ease-out focus:ring-2 focus:ring-purple-500/20 ${
+                  additionalTextFocused ? 'resize-y' : 'resize-none'
+                }`}
                 style={{
-                  minHeight: additionalTextFocused ? '140px' : '80px',
-                  height: additionalTextFocused ? '140px' : '80px'
+                  minHeight: '80px',
+                  maxHeight: additionalTextFocused ? '500px' : '80px',
+                  overflow: 'auto'
                 }}
               />
             </div>
@@ -1394,8 +1417,12 @@ Provide verified sequences from scientific databases in the JSON format specifie
         </DialogContent>
       </Dialog>
 
-      <Dialog open={showWelcome} onOpenChange={setShowWelcome}>
-        <DialogContent className="max-w-lg">
+      <Dialog open={showWelcome} onOpenChange={(open) => {
+        // Only allow closing via the Continue button, not by clicking outside or X
+        if (!open) return;
+        setShowWelcome(open);
+      }}>
+        <DialogContent className="max-w-lg" showCloseButton={false}>
           <DialogHeader>
             <div className="flex items-center gap-3 mb-2">
               <div className="p-2 rounded-full bg-purple-100 dark:bg-purple-900/30">
