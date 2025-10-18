@@ -141,12 +141,16 @@ export function AiSidebar({ onImport }: AiSidebarProps) {
   const [welcomeCountdown, setWelcomeCountdown] = React.useState(3);
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
 
-  // Check if first time user and show welcome
+  // Check if first time user and show welcome after sidebar opens
   React.useEffect(() => {
     if (typeof window !== 'undefined') {
       const hasSeenWelcome = localStorage.getItem('idt-ai-welcome-seen');
       if (!hasSeenWelcome && isOpen) {
-        setShowWelcome(true);
+        // Delay showing welcome until sidebar animation completes (400ms)
+        const timer = setTimeout(() => {
+          setShowWelcome(true);
+        }, 450);
+        return () => clearTimeout(timer);
       }
     }
   }, [isOpen]);
@@ -759,13 +763,19 @@ Provide verified sequences from scientific databases in the JSON format specifie
   return (
     <>
       <div 
-        className={`${isOpen ? 'w-[420px]' : 'w-12'} border-r bg-gradient-to-b from-purple-50/50 via-transparent to-transparent dark:from-purple-950/20 flex flex-col relative`}
+        className={`${isOpen ? 'w-[420px]' : 'w-12'} border-r bg-gradient-to-b from-purple-50/50 via-transparent to-transparent dark:from-purple-950/20 flex flex-col relative overflow-hidden`}
         style={{ transition: 'width 0.4s cubic-bezier(0.4, 0, 0.2, 1)' }}
       >
-        <div className="p-2 border-b bg-background/80 backdrop-blur-sm flex items-center justify-between">
+        <div className="p-2 border-b bg-background/80 backdrop-blur-sm flex items-center justify-between min-w-[420px]">
           {isOpen ? (
-            <>
-              <div className="flex items-center gap-2">
+            <div 
+              className="flex items-center justify-between w-full"
+              style={{
+                opacity: isOpen ? 1 : 0,
+                transition: 'opacity 0.3s ease-in-out 0.2s'
+              }}
+            >
+              <div className="flex items-center gap-2 whitespace-nowrap">
                 <div className="relative">
                   <Sparkles className="size-5 text-purple-600 animate-pulse" style={{ animationDuration: '3s' }} />
                   <div className="absolute inset-0 bg-purple-600/20 blur-md rounded-full animate-pulse" style={{ animationDuration: '3s' }} />
@@ -827,7 +837,7 @@ Provide verified sequences from scientific databases in the JSON format specifie
                   </Tooltip>
                 </TooltipProvider>
               </div>
-            </>
+            </div>
           ) : (
             <TooltipProvider delayDuration={200}>
               <Tooltip>
@@ -851,10 +861,10 @@ Provide verified sequences from scientific databases in the JSON format specifie
 
         {isOpen && (
           <div 
-            className="flex-1 overflow-y-auto px-6 py-4 space-y-4 animate-in fade-in slide-in-from-left-4"
+            className="flex-1 overflow-y-auto px-6 py-4 space-y-4 min-w-[420px]"
             style={{ 
-              animationDuration: '0.3s',
-              animationTimingFunction: 'cubic-bezier(0.4, 0, 0.2, 1)'
+              opacity: isOpen ? 1 : 0,
+              transition: 'opacity 0.3s ease-in-out 0.2s'
             }}
           >
             {settingsOpen && (
